@@ -31,43 +31,43 @@ func GetMemoryRegion(m uint32) MemoryRegions {
 }
 
 // Each memory region has different access times, calculate cycle count based on region and size
-func CalculateCycleCount(memoryRegion MemoryRegions, size int) int {
+func CalculateCycleCount(memoryRegion MemoryRegions, size int) (int, error) {
 
 	switch memoryRegion {
 	case BiosRegion:
-		return 1
+		return 1, nil
 	case EWRAMRegion:
-		return 1
+		return 1, nil
 	case IWRAMRegion:
 		if slices.Contains([]int{8, 16}, size) {
-			return 3
+			return 3, nil
 		} else {
-			return 6
+			return 6, nil
 		}
 	case IORegion:
-		return 1
+		return 1, nil
 	case OAMRegion:
-		return 1
+		return 1, nil
 	case PaletteRAMRegion:
 		if slices.Contains([]int{8, 16}, size) {
-			return 1
+			return 1, nil
 		} else {
-			return 2
+			return 2, nil
 		}
 	case VRAMRegion:
 		if slices.Contains([]int{8, 16}, size) {
-			return 1
+			return 1, nil
 		} else {
-			return 2
+			return 2, nil
 		}
 	case GamePakROM0Region, GamePakROM1Region, GamePakROM2Region:
 		if slices.Contains([]int{8, 16}, size) {
-			return 5
+			return 5, nil
 		} else {
-			return 8
+			return 8, nil
 		}
 	case GamePakSaveRegion:
-		return 5
+		return 5, nil
 	}
-	return 0 // Invalid region
+	return 0, nil // Invalid region
 }
