@@ -1,32 +1,35 @@
 package cpu
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+)
 
 type Bus interface {
 	Read(addr uint32, size int) (uint32, error)
 	Write(addr uint32, size int, value uint32) error
 }
 
-func GetMemoryRegion(m uint32) MemoryRegions {
+func GetMemoryRegion(m uint32) (MemoryRegions, error) {
 	switch {
 	case m >= 0x00 && m < 0x02:
-		return BiosRegion
+		return BiosRegion, nil
 	case m >= 0x02 && m < 0x03:
-		return EWRAMRegion
+		return EWRAMRegion, nil
 	case m >= 0x03 && m < 0x04:
-		return IWRAMRegion
+		return IWRAMRegion, nil
 	case m >= 0x04 && m < 0x05:
-		return IORegion
+		return IORegion, nil
 	case m >= 0x05 && m < 0x06:
-		return PaletteRAMRegion
+		return PaletteRAMRegion, nil
 	case m >= 0x06 && m < 0x07:
-		return VRAMRegion
+		return VRAMRegion, nil
 	case m >= 0x07 && m < 0x08:
-		return OAMRegion
+		return OAMRegion, nil
 	case m >= 0x08 && m < 0x0E:
-		return GamePakROM0Region
+		return GamePakROM0Region, nil
 	default:
-		return 0 // Invalid region
+		return 0, fmt.Errorf("invalid memory region") // Invalid region
 	}
 }
 
