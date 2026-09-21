@@ -36,3 +36,109 @@ func isBranchInstruction(opcode uint32) bool {
 func isBranchAndExchangeInstruction(opcode uint32) bool {
 	return isMatch(opcode, 0b0000_1111_1111_1111_1111_1111_1111_1111, 0b0000_0001_0010_1111_1111_1111_1111_1111)
 }
+
+// Opcode Format
+
+//   Bit    Expl.
+//   31-28  Condition
+//   27-25  Must be 000b for this instruction
+//   24-21  Opcode
+//           0000b: MUL{cond}{S}   Rd,Rm,Rs        ;multiply   Rd = Rm*Rs
+//           0001b: MLA{cond}{S}   Rd,Rm,Rs,Rn     ;mul.& accumulate Rd = Rm*Rs+Rn
+//           0100b: UMULL{cond}{S} RdLo,RdHi,Rm,Rs ;multiply   RdHiLo=Rm*Rs
+//           0101b: UMLAL{cond}{S} RdLo,RdHi,Rm,Rs ;mul.& acc. RdHiLo=Rm*Rs+RdHiLo
+//           0110b: SMULL{cond}{S} RdLo,RdHi,Rm,Rs ;sign.mul.  RdHiLo=Rm*Rs
+//           0111b: SMLAL{cond}{S} RdLo,RdHi,Rm,Rs ;sign.m&a.  RdHiLo=Rm*Rs+RdHiLo
+//           1000b: SMLAxy{cond}   Rd,Rm,Rs,Rn     ;Rd=HalfRm*HalfRs+Rn
+//           1001b: SMLAWy{cond}   Rd,Rm,Rs,Rn     ;Rd=(Rm*HalfRs)/10000h+Rn
+//           1001b: SMULWy{cond}   Rd,Rm,Rs        ;Rd=(Rm*HalfRs)/10000h
+//           1010b: SMLALxy{cond}  RdLo,RdHi,Rm,Rs ;RdHiLo=RdHiLo+HalfRm*HalfRs
+//           1011b: SMULxy{cond}   Rd,Rm,Rs        ;Rd=HalfRm*HalfRs
+//   20     S - Set Condition Codes (0=No, 1=Yes) (Must be 0 for Halfword mul)
+//   19-16  Rd (or RdHi) - Destination Register (R0-R14)
+//   15-12  Rn (or RdLo) - Accumulate Register  (R0-R14) (Set to 0000b if unused)
+//   11-8   Rs - Operand Register               (R0-R14)
+//   For Non-Halfword Multiplies
+//     7-4  Must be 1001b for these instructions
+//   For Halfword Multiplies
+//     7    Must be 1 for these instructions
+//     6    y - Rs Top/Bottom flag (0=B=Lower 16bit, 1=T=Upper 16bit)
+//     5    x - Rm Top/Bottom flag (as above), or 0 for SMLAW, or 1 for SMULW
+//     4    Must be 0 for these instructions
+//   3-0    Rm - Operand Register               (R0-R14)
+
+func isMultiply(opcode uint32) bool {
+	// ideally we can check for 27-25, 7-5 and bit 23 (MUL/MLA vs Extended MUL)
+	// In order to check if the opcode is mul related, we can use a single mask here
+	return isMatch(opcode, 0b0000_1110_0000_0000_0000_0000_1111_0000, 0b0000_0000_0000_0000_0000_0000_1001_0000)
+}
+
+// Opcode Format
+
+//   Bit    Expl.
+//   31-28  Condition (Must be 1111b for PLD)
+//   27-26  Must be 01b for this instruction
+//   25     I - Immediate Offset Flag (0=Immediate, 1=Shifted Register)
+//   24     P - Pre/Post (0=post; add offset after transfer, 1=pre; before trans.)
+//   23     U - Up/Down Bit (0=down; subtract offset from base, 1=up; add to base)
+//   22     B - Byte/Word bit (0=transfer word quantity, 1=transfer byte quantity)
+//   When above Bit 24 P=0 (Post-indexing, write-back is ALWAYS enabled):
+//     21     T - Memory Management (0=Normal, 1=Force non-privileged access)
+//   When above Bit 24 P=1 (Pre-indexing, write-back is optional):
+//     21     W - Write-back bit (0=no write-back, 1=write address into base)
+//   20     L - Load/Store bit (0=Store to memory, 1=Load from memory)
+//           0: STR{cond}{B}{T} Rd,<Address>   ;[Rn+/-<offset>]=Rd
+//           1: LDR{cond}{B}{T} Rd,<Address>   ;Rd=[Rn+/-<offset>]
+//          (1: PLD <Address> ;Prepare Cache for Load, see notes below)
+//           Whereas, B=Byte, T=Force User Mode (only for POST-Indexing)
+//   19-16  Rn - Base register               (R0..R15) (including R15=PC+8)
+//   15-12  Rd - Source/Destination Register (R0..R15) (including R15=PC+12)
+//   When above I=0 (Immediate as Offset)
+//     11-0   Unsigned 12bit Immediate Offset (0-4095, steps of 1)
+//   When above I=1 (Register shifted by Immediate as Offset)
+//     11-7   Is - Shift amount      (1-31, 0=Special/See below)
+//     6-5    Shift Type             (0=LSL, 1=LSR, 2=ASR, 3=ROR)
+//     4      Must be 0 (Reserved, see ARM.17, The Undefined Instruction)
+//     3-0    Rm - Offset Register   (R0..R14) (not including PC=R15)
+
+// Checking for bits 27-26 only
+func isSingleDataTransfer(opcode uint32) bool {
+	return isMatch(opcode, 0b0000_1100_0000_0000_0000_0000_0000_0000, 0b0000_0100_0000_0000_0000_0000_0000_0000)
+}
+
+// Opcode Format
+// These instructions occupy an unused area (TEQ,TST,CMP,CMN with S=0) of Data Processing opcodes (ARM.5).
+
+//   Bit    Expl.
+//   31-28  Condition
+//   27-26  Must be 00b for this instruction
+//   25     I - Immediate Operand Flag  (0=Register, 1=Immediate) (Zero for MRS)
+//   24-23  Must be 10b for this instruction
+//   22     Psr - Source/Destination PSR  (0=CPSR, 1=SPSR_<current mode>)
+//   21     Opcode
+//            0: MRS{cond} Rd,Psr          ;Rd = Psr
+//            1: MSR{cond} Psr{_field},Op  ;Psr[field] = Op
+//   20     Must be 0b for this instruction (otherwise TST,TEQ,CMP,CMN)
+//   For MRS:
+//     19-16   Must be 1111b for this instruction (otherwise SWP)
+//     15-12   Rd - Destination Register  (R0-R14)
+//     11-0    Not used, must be zero.
+//   For MSR:
+//     19      f  write to flags field     Bit 31-24 (aka _flg)
+//     18      s  write to status field    Bit 23-16 (reserved, don't change)
+//     17      x  write to extension field Bit 15-8  (reserved, don't change)
+//     16      c  write to control field   Bit 7-0   (aka _ctl)
+//     15-12   Not used, must be 1111b.
+//   For MSR Psr,Rm (I=0)
+//     11-4    Not used, must be zero. (otherwise BX)
+//     3-0     Rm - Source Register <op>  (R0-R14)
+//   For MSR Psr,Imm (I=1)
+//     11-8    Shift applied to Imm   (ROR in steps of two 0-30)
+//     7-0     Imm - Unsigned 8bit Immediate
+//     In source code, a 32bit immediate should be specified as operand.
+//     The assembler should then convert that into a shifted 8bit value.
+
+func isPSRTransfer(opcode uint32) bool {
+	// MRS || MSR
+	return isMatch(opcode, 0b0000_1101_1011_1111_1111_1111_1111_1111, 0b0000_0001_0000_1111_0000_0000_0000_0000) || isMatch(opcode, 0b0000_1101_0011_0000_1111_1111_1111_1111, 0b0000_0001_0010_0000_1111_1111_1111_1111)
+}
