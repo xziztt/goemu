@@ -8,11 +8,8 @@ package arm
 func convertOpcodeToOperation(opcode uint32) func(opcode uint32) {
 	switch {
 	//ToDo: Implement methods to process these operations
-	case isBranchInstruction(opcode):
-	case isBranchAndExchangeInstruction(opcode):
 	default:
 		return nil
 	}
-
 	return nil
 }
