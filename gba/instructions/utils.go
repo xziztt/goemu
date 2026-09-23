@@ -1,5 +1,6 @@
 package arm
 
+// apply bitmask on the opcode to see if it matches the pattern for a type.
 func isMatch(opcode uint32, mask uint32, value uint32) bool {
 	return (opcode & mask) == value
 }
@@ -192,4 +193,41 @@ func isHalfWord(opcode uint32) bool {
 func isSignedDataTransfer(opcode uint32) bool {
 	return isMatch(opcode, 0b0000_1110_0001_0000_0000_0000_1101_0000, 0b0000_0000_0001_0000_0000_0000_1101_0000)
 
+}
+
+// Bit    Expl.
+// 31-28  Condition
+// 27-25  Must be 100b for this instruction
+// 24     P - Pre/Post (0=post; add offset after transfer, 1=pre; before trans.)
+// 23     U - Up/Down Bit (0=down; subtract offset from base, 1=up; add to base)
+// 22     S - PSR & force user bit (0=No, 1=load PSR or force user mode)
+// 21     W - Write-back bit (0=no write-back, 1=write address into base)
+// 20     L - Load/Store bit (0=Store to memory, 1=Load from memory)
+//
+//	0: STM{cond}{amod} Rn{!},<Rlist>{^}  ;Store (Push)
+//	1: LDM{cond}{amod} Rn{!},<Rlist>{^}  ;Load  (Pop)
+//	Whereas, {!}=Write-Back (W), and {^}=PSR/User Mode (S)
+//
+// 19-16  Rn - Base register                (R0-R14) (not including R15)
+// 15-0   Rlist - Register List
+// (Above 'offset' is meant to be the number of words specified in Rlist.)
+
+func isBlockDataTransfer(opcode uint32) bool {
+	return isMatch(opcode, 0b0000_1110_0000_0000_0000_0000_00000_0000, 0b0000_1000_0000_0000_0000_0000_0000_0000)
+}
+
+//  Bit    Expl.
+//   31-28  Condition
+//   27-23  Must be 00010b for this instruction
+//          Opcode (fixed)
+//            SWP{cond}{B} Rd,Rm,[Rn]      ;Rd=[Rn], [Rn]=Rm
+//   22     B - Byte/Word bit (0=swap 32bit/word, 1=swap 8bit/byte)
+//   21-20  Must be 00b for this instruction
+//   19-16  Rn - Base register                     (R0-R14)
+//   15-12  Rd - Destination Register              (R0-R14)
+//   11-4   Must be 00001001b for this instruction
+//   3-0    Rm - Source Register                   (R0-R14)
+
+func isSingleDataSwap(opcode uint32) bool {
+	return isMatch(opcode, 0b0000_1111_1011_0000_0000_1111_1111_0000, 0b0000_0001_0000_0000_0000_0000_1001_0000)
 }
