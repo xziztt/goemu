@@ -11,5 +11,4 @@ func convertOpcodeToOperation(opcode uint32) func(opcode uint32) {
 	default:
 		return nil
 	}
-	return nil
 }
