@@ -1,4 +1,4 @@
-package arm
+package cpu
 
 // apply bitmask on the opcode to see if it matches the pattern for a type.
 func isMatch(opcode uint32, mask uint32, value uint32) bool {

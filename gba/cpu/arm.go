@@ -1,4 +1,4 @@
-package arm
+package cpu
 
 // Arm opcodes are represented as 32 bit values
 // This function maps the opcode to the corresponding arm operation

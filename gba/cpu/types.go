@@ -29,6 +29,12 @@ type Registers struct {
 	UND    UNDRegisters
 }
 
+const (
+	PC = 15
+	LR = 14
+	SP = 13
+)
+
 type CommonRegisters [16]uint32
 type FIQRegisters [7]uint32
 type SVCRegisters [2]uint32
