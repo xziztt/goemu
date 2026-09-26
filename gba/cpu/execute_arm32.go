@@ -1,6 +1,8 @@
 package cpu
 
-func (c *CPU) ExecBranch(opcode uint32) {
+// TODO handle fetch decode loop for the next instruction after this is executed
+
+func (c *CPU) Branch(opcode uint32) {
 
 	// bit 24 - if 0 -> B, if 1 -> BL
 
@@ -18,4 +20,23 @@ func (c *CPU) ExecBranch(opcode uint32) {
 	// opcode << 8 gives you last 24 bits, now right shift these by 8 to give you signed representation, left shift by 2 to multiple nn by 4 (>>8<<4 = >> 6)
 	newLoc := uint32((opcode << 8) >> 6)
 	c.Registers.Common[PC] = newLoc
+}
+
+func (c *CPU) BranchExchange(opcode uint32) {
+	//get bits 7-4 to check if BX, BXJ or BLX
+	// Don't really need to check this since ARM7TDMI only supports BX
+	// Adding in case need to reuse the code for somthing other than GBA
+
+	opType := uint((opcode >> 4) & 0xF)
+	// 3-0 denotes the value of Rn
+	rn := opcode & 0xF
+
+	switch opType {
+	// BX requires 7-4 to be 0001b
+	case 0x1:
+		c.Registers.Common[PC] = c.Registers.Common[rn]
+		// Check if we should switch to THUMB mode
+		c.switchModes()
+	}
+
 }

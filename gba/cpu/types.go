@@ -27,6 +27,8 @@ type Registers struct {
 	ABT    ABTRegisters
 	IRQ    IRQRegisters
 	UND    UNDRegisters
+	CPSR   CPSRegisters
+	SPSR   SPSRegisters
 }
 
 const (
@@ -35,12 +37,22 @@ const (
 	SP = 13
 )
 
+type StatusRegister struct {
+	N, Z, C, V, Q, J, E, A, I, F, T bool
+}
+
 type CommonRegisters [16]uint32
 type FIQRegisters [7]uint32
 type SVCRegisters [2]uint32
 type ABTRegisters [2]uint32
 type IRQRegisters [2]uint32
 type UNDRegisters [2]uint32
+type CPSRegisters StatusRegister
+
+// SPSR is used in case an IRQ occurs.
+// It saves the current state of the CPSR into SPSR and switches over.
+// For example, CPU is in THUMB mode and IRQ occurs, it needs to switch back to THUMB after
+type SPSRegisters [6]StatusRegister
 
 func (r *Registers) initialize() {
 	*r = Registers{
