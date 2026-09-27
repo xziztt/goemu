@@ -1,3 +1,1 @@
-# Emulator experimentacion
-
-Trying to build a GBA emulator in golang
+# [WIP] A Golang based GBA emulator
