@@ -24,3 +24,7 @@ func (c *CPU) switchModes() {
 	// clearn bits 0 and 1 since ARM instruction starting addresses need to be word aligned (divisible by 4)
 	c.Registers.Common[PC] &^= 3
 }
+
+// Placeholder function to skip cycles
+func (c *CPU) skip(cycles uint32) {
+}

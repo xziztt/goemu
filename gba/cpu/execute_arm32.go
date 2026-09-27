@@ -2,6 +2,22 @@ package cpu
 
 // TODO handle fetch decode loop for the next instruction after this is executed
 
+func (c *CPU) getCyclesForMul(rs uint32) uint32 {
+	mask := uint32(0xFFFFFF00)
+	cycles := uint32(0)
+	for {
+		checkBits := rs & mask
+		if checkBits == 0 || checkBits == mask {
+			break
+		}
+		mask = mask << 8
+		cycles += 1
+	}
+
+	return cycles
+
+}
+
 func (c *CPU) Branch(opcode uint32) {
 
 	// bit 24 - if 0 -> B, if 1 -> BL
@@ -39,4 +55,84 @@ func (c *CPU) BranchExchange(opcode uint32) {
 		c.switchModes()
 	}
 
+}
+
+func (c *CPU) Multiply(opcode uint32) {
+
+	const (
+		MUL   = 0b0000
+		MLA   = 0b0001
+		UMULL = 0b0100
+		UMLAL = 0b0101
+		SMULL = 0b0110
+		SMLAL = 0b0111
+	)
+
+	set := ((opcode >> 20) & 0x1) != 0
+	rd := (opcode >> 16) & 0xF
+	rn := (opcode >> 12) & 0xF
+	rs := (opcode >> 8) & 0xF
+	rm := opcode & 0xF
+
+	// get bits starting from 21-24
+
+	instr := (opcode >> 21) & 0xF
+	switch instr {
+	case MUL, MLA:
+		prod := c.Registers.Common[rm] * c.Registers.Common[rs]
+
+		// if MLA add value from rn
+		if instr == MLA {
+			prod += c.Registers.Common[rn]
+		}
+
+		c.Registers.Common[rd] = prod
+
+		// ToDo calculate cycles and then update timings accordingly
+		cycles := c.getCyclesForMul(c.Registers.Common[rs])
+		c.skip(cycles)
+
+		// if set is 1, then set Zero Flag and the Sign Flag,
+		if set {
+			c.Registers.CPSR.N = (opcode>>31)&0x1 == 1
+			c.Registers.CPSR.Z = prod == 0
+		}
+
+	case UMULL, UMLAL:
+		prod := uint64(c.Registers.Common[rm]) * uint64(c.Registers.Common[rs])
+		if instr == UMLAL {
+			// if UMLAL, get first 32 bits from rdHI, get second 32 from rdLo and concat them
+			prod += uint64(c.Registers.Common[rd])<<32 | uint64(c.Registers.Common[rn])
+		}
+
+		c.Registers.Common[rd] = uint32(prod >> 32)
+		c.Registers.Common[rn] = uint32(prod)
+
+		cycles := c.getCyclesForMul(c.Registers.Common[rs])
+		c.skip(cycles)
+
+		if set {
+			c.Registers.CPSR.N = (prod>>63)&0x1 == 1
+			c.Registers.CPSR.Z = prod == 0
+
+		}
+
+	case SMULL, SMLAL:
+		prod := int64(c.Registers.Common[rm]) * int64(c.Registers.Common[rs])
+		if instr == SMLAL {
+			prod += int64(c.Registers.Common[rd])<<32 | int64(c.Registers.Common[rn])
+		}
+
+		c.Registers.Common[rd] = uint32(prod >> 32)
+		c.Registers.Common[rn] = uint32(prod)
+
+		cycles := c.getCyclesForMul(c.Registers.Common[rs])
+		c.skip(cycles)
+
+		if set {
+			c.Registers.CPSR.N = (prod>>63)&0x1 == 1
+			c.Registers.CPSR.Z = prod == 0
+		}
+
+	}
 }
