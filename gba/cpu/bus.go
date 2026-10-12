@@ -26,7 +26,7 @@ func GetMemoryRegion(m uint32) (MemoryRegions, error) {
 	case m >= 0x07 && m < 0x08:
 		return OAMRegion, nil
 	case m >= 0x08 && m < 0x0E:
-		return GamePakROM0Region, nil
+		return GamePakROMRegion, nil
 	default:
 		return 0, fmt.Errorf("invalid memory region") // Invalid region
 	}
@@ -61,7 +61,7 @@ func CalculateCycleCount(memoryRegion MemoryRegions, size int) (int, error) {
 		} else {
 			return 2, nil
 		}
-	case GamePakROM0Region, GamePakROM1Region, GamePakROM2Region:
+	case GamePakROMRegion:
 		if slices.Contains([]int{8, 16}, size) {
 			return 5, nil
 		} else {
@@ -84,7 +84,6 @@ func CalculateCycleCount(memoryRegion MemoryRegions, size int) (int, error) {
 //
 // 05000000-050003FF   BG/OBJ Palette RAM       (1 KB)
 // 05000400-05FFFFFF   Not used (mirrored)
-//
 // 06000000-06017FFF   VRAM - Video RAM         (96 KB)
 // 06018000-06FFFFFF   Not used (partially mirrored)
 //
@@ -101,28 +100,40 @@ func (b *Bus) Read8(addr uint32) uint32 {
 	// We can use the first 8 bits to check the region
 	switch addr >> 24 {
 	case 0x00:
-		return uint32(b.memory.Bios[addr])
+		if addr < 0x4000 {
+			return uint32(b.memory.Bios[addr])
+		}
 	case 0x02:
-		return uint32(b.memory.IWRam[addr])
+		return uint32(b.memory.EWRam[addr&0x3FFFF])
 	case 0x03:
-		return uint32(b.memory.EWRam[addr])
+		return uint32(b.memory.IWRam[addr&0x7FFF])
 	case 0x04:
-		return uint32(b.memory.IORegion[addr])
+		// ToDo: Handle individual behavior based on register type
+		// Impl a handler and call it here instead of directly accessing memory loc
+		offset := addr - 0x04000000
+		if offset < 0x400 {
+			return uint32(b.memory.IORegion[offset])
+		}
 	case 0x05:
-		return uint32(b.memory.PaletteRAMRegion[addr])
+		return uint32(b.memory.PaletteRAMRegion[addr&0x3FF])
 	case 0x06:
-		return uint32(b.memory.VRAMRegion[addr])
+		// VRAMRegion is total 96 bytes, however GBA uses a 128 byte mapping
+		// The last 32 bits duplicate the previous 32 bits (64 + 32)
+		offset := addr & 0x1FFFF
+		// Check if offset falls in the duplicate region
+		if offset >= 0x18000 { // >96kb
+			offset -= 0x8000 // Subtract 32kb
+		}
+		return uint32(b.memory.VRAMRegion[offset])
 	case 0x07:
-		return uint32(b.memory.OAMRegion[addr])
-	case 0x08, 0x09:
-		return uint32(b.memory.GamePakROM0Region[addr])
-	case 0x0A, 0x0B:
-		return uint32(b.memory.GamePakROM1Region[addr])
-	case 0x0C, 0x0D:
-		return uint32(b.memory.GamePakROM2Region[addr])
+		return uint32(b.memory.OAMRegion[addr&0x3FF])
+	// 32 bit address space for GamePakROMRegion x 1024 x 1024 = 33,554,432 = 2^{25}
+	case 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D:
+		offset := addr & 0x1FFFFFF
+		return uint32(b.memory.GamePakROMRegion[offset])
 	case 0xE, 0xF:
-		return uint32(b.memory.GamePakSaveRegion[addr])
-	default:
-		return 0
+		offset := addr & 0xFFFF
+		return uint32(b.memory.GamePakSaveRegion[offset])
 	}
+	return 0
 }
