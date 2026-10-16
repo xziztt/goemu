@@ -1,5 +1,7 @@
 package cpu
 
+import "fmt"
+
 // apply bitmask on the opcode to see if it matches the pattern for a type.
 func isMatch(opcode uint32, mask uint32, value uint32) bool {
 	return (opcode & mask) == value
@@ -144,7 +146,7 @@ func isPSRTransfer(opcode uint32) bool {
 	return isMatch(opcode, 0b0000_1101_1011_1111_1111_1111_1111_1111, 0b0000_0001_0000_1111_0000_0000_0000_0000) || isMatch(opcode, 0b0000_1101_0011_0000_1111_1111_1111_1111, 0b0000_0001_0010_0000_1111_1111_1111_1111)
 }
 
-//Memory: Halfword, Doubleword, and Signed Data Transfer
+// Memory: Halfword, Doubleword, and Signed Data Transfer
 //   Bit    Expl.
 //   31-28  Condition
 //   27-25  Must be 000b for this instruction
@@ -180,8 +182,7 @@ func isPSRTransfer(opcode uint32) bool {
 //          When above Bit 22 I=1:
 //            Immediate Offset (lower 4bits)  (0-255, together with upper bits)
 
-//Double word is not supported by ARM7TDMI
-
+// Double word is not supported by ARM7TDMI
 func isHalfWord(opcode uint32) bool {
 	return isMatch(opcode, 0b0000_1110_0000_0000_0000_0000_1001_0000, 0b0000_00000_0000_0000_0000_0000_1001_0000)
 }
@@ -192,7 +193,6 @@ func isHalfWord(opcode uint32) bool {
 // 27-25 are always 0s
 func isSignedDataTransfer(opcode uint32) bool {
 	return isMatch(opcode, 0b0000_1110_0001_0000_0000_0000_1101_0000, 0b0000_0000_0001_0000_0000_0000_1101_0000)
-
 }
 
 // Bit    Expl.
@@ -233,18 +233,7 @@ func isSingleDataSwap(opcode uint32) bool {
 }
 
 //   Bit    Expl.
-//   31-28  Condition
-//   27-26  Must be 00b for this instruction
-//   25     I - Immediate 2nd Operand Flag (0=Register, 1=Immediate)
-//   24-21  Opcode (0-Fh)               ;*=Arithmetic, otherwise Logical
-//            0: AND{cond}{S} Rd,Rn,Op2    ;AND logical       Rd = Rn AND Op2
-//            1: EOR{cond}{S} Rd,Rn,Op2    ;XOR logical       Rd = Rn XOR Op2
-//            2: SUB{cond}{S} Rd,Rn,Op2 ;* ;subtract          Rd = Rn-Op2
-//            3: RSB{cond}{S} Rd,Rn,Op2 ;* ;subtract reversed Rd = Op2-Rn
-//            4: ADD{cond}{S} Rd,Rn,Op2 ;* ;add               Rd = Rn+Op2
-//            5: ADC{cond}{S} Rd,Rn,Op2 ;* ;add with carry    Rd = Rn+Op2+Cy
-//            6: SBC{cond}{S} Rd,Rn,Op2 ;* ;sub with carry    Rd = Rn-Op2+Cy-1
-//            7: RSC{cond}{S} Rd,Rn,Op2 ;* ;sub cy. reversed  Rd = Op2-Rn+Cy-1
+//   reseversed  Rd = Op2-Rn+Cy-1
 //            8: TST{cond}{P}    Rn,Op2    ;test            Void = Rn AND Op2
 //            9: TEQ{cond}{P}    Rn,Op2    ;test exclusive  Void = Rn XOR Op2
 //            A: CMP{cond}{P}    Rn,Op2 ;* ;compare         Void = Rn-Op2
@@ -272,4 +261,31 @@ func isSingleDataSwap(opcode uint32) bool {
 
 func isDataProcessing(opcode uint32) bool {
 	return isMatch(opcode, 0b0000_1100_0000_0000_0000_0000_0000_0000, 0b0000_0000_0000_0000_0000_0000_0000_0000)
+}
+
+func (c *CPU) decodeArm32(op uint32) {
+	switch {
+	case isDataProcessing(op):
+		c.DataProcessing(op)
+	case isBranchInstruction(op):
+		c.Branch(op)
+	case isBranchAndExchangeInstruction(op):
+		c.Branch(op)
+	case isBlockDataTransfer(op):
+		c.Block(op)
+	case isHalfWord(op):
+		c.HalfWord(op)
+	case isMultiply(op):
+		c.Multiply(op)
+	case isPSRTransfer(op):
+		c.PSRTransfer(op)
+	case isSignedDataTransfer(op):
+		c.SignedDataTransfer(op)
+	case isSingleDataSwap(op):
+		c.SingleDataSwap(op)
+	case isSingleDataTransfer(op):
+		c.SingleDataTransfer(op)
+	default:
+		panic(fmt.Sprintf("invalid opcode at %v, value: %v", c.Registers.Common[PC], op))
+	}
 }

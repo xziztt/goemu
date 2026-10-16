@@ -250,3 +250,27 @@ func (c *CPU) SingleDataTransfer(opcode uint32) {
 		}
 	}
 }
+
+func (c *CPU) PSRTransfer(opcode uint32) {
+	// TODO: Implement
+}
+
+func (c *CPU) HalfWord(opcode uint32) {
+	// TODO: Implement
+}
+
+func (c *CPU) SignedDataTransfer(opcode uint32) {
+	// TODO: Implement
+}
+
+func (c *CPU) Block(opcode uint32) {
+	// TODO: Implement
+}
+
+func (c *CPU) SingleDataSwap(opcode uint32) {
+	// TODO: Implement
+}
+
+func (c *CPU) DataProcessing(opcode uint32) {
+	// TODO: Implement
+}
