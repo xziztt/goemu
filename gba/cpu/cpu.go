@@ -1,17 +1,16 @@
 package cpu
 
 type CPU struct {
-	memory    MemoryRegions
+	Memory    MemoryRegions
 	Registers Registers
+	Bus       Bus
 }
 
 func (c *CPU) step() {
-
 }
 
 // This function should be called when an operation that could possibly switch mode to THUMB occurs
 func (c *CPU) switchModes() {
-
 	if setThumb := c.Registers.Common[PC] & 0x1; setThumb == 1 {
 		c.Registers.CPSR.T = true
 
