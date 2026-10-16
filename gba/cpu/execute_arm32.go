@@ -1,5 +1,7 @@
 package cpu
 
+import "math/bits"
+
 // TODO handle fetch decode loop for the next instruction after this is executed
 
 func (c *CPU) getCyclesForMul(rs uint32) uint32 {
@@ -15,11 +17,9 @@ func (c *CPU) getCyclesForMul(rs uint32) uint32 {
 	}
 
 	return cycles
-
 }
 
 func (c *CPU) Branch(opcode uint32) {
-
 	// bit 24 - if 0 -> B, if 1 -> BL
 
 	// if BL, store the return addr (PC - 4) inside LR
@@ -39,7 +39,7 @@ func (c *CPU) Branch(opcode uint32) {
 }
 
 func (c *CPU) BranchExchange(opcode uint32) {
-	//get bits 7-4 to check if BX, BXJ or BLX
+	// get bits 7-4 to check if BX, BXJ or BLX
 	// Don't really need to check this since ARM7TDMI only supports BX
 	// Adding in case need to reuse the code for somthing other than GBA
 
@@ -54,11 +54,9 @@ func (c *CPU) BranchExchange(opcode uint32) {
 		// Check if we should switch to THUMB mode
 		c.switchModes()
 	}
-
 }
 
 func (c *CPU) Multiply(opcode uint32) {
-
 	const (
 		MUL   = 0b0000
 		MLA   = 0b0001
@@ -134,5 +132,121 @@ func (c *CPU) Multiply(opcode uint32) {
 			c.Registers.CPSR.Z = prod == 0
 		}
 
+	}
+}
+
+func (c *CPU) SingleDataTransfer(opcode uint32) {
+	const (
+		LSL = iota
+		LSR
+		ASR
+		ROR
+	)
+
+	var (
+		sr   = opcode>>25&0x1 == 1
+		pre  = opcode>>24&0x1 == 1
+		up   = opcode>>23&0x1 == 1
+		byte = opcode>>22&0x1 == 1
+		//wb   = opcode>>21&0x1 == 1 && !pre
+		load = opcode>>20&0x1 == 1
+		rn   = opcode >> 16 & 0xF
+		rd   = opcode >> 12 & 0xF
+		addr uint32
+	)
+
+	var offset uint32
+
+	// if !sr, bits 11-0 contains the offset
+	if !sr {
+		offset = opcode & 0xFFF
+	} else {
+		// offset register number
+		or := opcode & 0xF
+		shiftType := (opcode >> 5) & 3
+		shiftAmount := (opcode >> 7) & 31
+
+		//   Zero Shift Amount (Shift Register by Immediate, with Immediate=0)
+		//   LSL#0: No shift performed, ie. directly Op2=Rm, the C flag is NOT affected.
+		//   LSR#0: Interpreted as LSR#32, ie. Op2 becomes zero, C becomes Bit 31 of Rm.
+		//   ASR#0: Interpreted as ASR#32, ie. Op2 and C are filled by Bit 31 of Rm.
+		//   ROR#0: Interpreted as RRX#1 (RCR), like ROR#1, but Op2 Bit 31 set to old C.
+
+		switch shiftType {
+		case LSL:
+			offset = c.Registers.Common[or] << shiftAmount
+		// Logical shift right
+		case LSR:
+			if shiftAmount == 0 {
+				shiftAmount = 32
+			}
+			offset = c.Registers.Common[or] >> shiftAmount
+		// Arithmetic Shift Right
+		case ASR:
+			if shiftAmount == 0 {
+				shiftAmount = 32
+			}
+			offset = uint32(c.Registers.Common[or] >> shiftAmount)
+		// Rotate Right
+		case ROR:
+			// if shift is for 32, it is RRX which means rotate right with carry flag participating
+			if shiftAmount == 0 {
+				// shift everything by 1
+				offset = uint32(c.Registers.Common[or] >> 1)
+				// if carry bit is set
+				if c.Registers.CPSR.C {
+					// set 31st bit of offset as 1 (carry should rotate right)
+					offset = offset | 0x80000000
+				}
+
+			} else {
+				// else do a normal shift to the right by shiftAmount
+				offset = bits.RotateLeft32(c.Registers.Common[or], -int(shiftAmount))
+			}
+		}
+
+	}
+
+	// base address
+	loc := c.Registers.Common[rn]
+
+	if up {
+		loc += offset
+	} else {
+		loc -= offset
+	}
+
+	// 1 -> PRE -> add offset before tansfer, 0 -> POST -> add offset after transfer
+	// PRE means -> Access memory[current + offset], POST means -> Access memory[current], update address to current + offset
+
+	if pre {
+		addr = loc
+	} else {
+		addr = c.Registers.Common[rn]
+	}
+
+	// check the load bit, if load bit is 1, load from memory, else store
+	if load {
+		// Check byte bit, if byte bit is 1, then transfer 8 bit else 32 bit
+		if byte {
+			// Transfer 1 byte
+			c.Registers.Common[rd] = uint32(c.Bus.Read8(addr))
+		} else {
+			// if transferring 32 bits, first read 32 bits from the addr
+			// figure out how much to shift by so that the value at addr is LSB of the word aligned value
+			val := uint32(c.Bus.Read32(addr))
+			// val & 3 gives you the offset from word aligned addr (word aligned = divisible by 4)
+			// << 3 converts it into bits
+			rotateBy := (addr & 3) << 3
+			c.Registers.Common[rd] = bits.RotateLeft32(val, -int(rotateBy))
+		}
+	} else {
+		// store
+		val := c.Registers.Common[rd]
+		if byte {
+			c.Bus.Write8(addr, uint8(val))
+		} else {
+			c.Bus.Write32(addr, val)
+		}
 	}
 }

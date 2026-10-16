@@ -96,44 +96,108 @@ func CalculateCycleCount(memoryRegion MemoryRegions, size int) (int, error) {
 //
 // 0E000000-0E00FFFF   Game Pak SRAM            (up to 64 KB)
 // 0E010000-0FFFFFFF   SRAM region mirrors / unused
-func (b *Bus) Read8(addr uint32) uint32 {
+func (b *Bus) Read8(addr uint32) uint8 {
 	// We can use the first 8 bits to check the region
 	switch addr >> 24 {
 	case 0x00:
 		if addr < 0x4000 {
-			return uint32(b.memory.Bios[addr])
+			return uint8(b.memory.Bios[addr])
 		}
+	// mirrored every 0x400 bytes
 	case 0x02:
-		return uint32(b.memory.EWRam[addr&0x3FFFF])
+		return uint8(b.memory.EWRam[addr&0x3FFFF])
+	// mirrored every 0x8000 bytes
 	case 0x03:
-		return uint32(b.memory.IWRam[addr&0x7FFF])
+		return uint8(b.memory.IWRam[addr&0x7FFF])
 	case 0x04:
 		// ToDo: Handle individual behavior based on register type
 		// Impl a handler and call it here instead of directly accessing memory loc
 		offset := addr - 0x04000000
 		if offset < 0x400 {
-			return uint32(b.memory.IORegion[offset])
+			return uint8(b.memory.IORegion[offset])
 		}
+	// mirrored every 0x400 bytes
 	case 0x05:
-		return uint32(b.memory.PaletteRAMRegion[addr&0x3FF])
+		return uint8(b.memory.PaletteRAMRegion[addr&0x3FF])
 	case 0x06:
-		// VRAMRegion is total 96 bytes, however GBA uses a 128 byte mapping
-		// The last 32 bits duplicate the previous 32 bits (64 + 32)
+		// VRAMRegion is total 96kb, however GBA uses a 128kb mapping
+		// The last 32 kb duplicate the previous 32 kb (64 + 32)
 		offset := addr & 0x1FFFF
 		// Check if offset falls in the duplicate region
 		if offset >= 0x18000 { // >96kb
 			offset -= 0x8000 // Subtract 32kb
 		}
-		return uint32(b.memory.VRAMRegion[offset])
+		return uint8(b.memory.VRAMRegion[offset])
+	// mirrores every 0x400 bytes
 	case 0x07:
-		return uint32(b.memory.OAMRegion[addr&0x3FF])
+		return uint8(b.memory.OAMRegion[addr&0x3FF])
 	// 32 bit address space for GamePakROMRegion x 1024 x 1024 = 33,554,432 = 2^{25}
 	case 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D:
 		offset := addr & 0x1FFFFFF
-		return uint32(b.memory.GamePakROMRegion[offset])
+		return uint8(b.memory.GamePakROMRegion[offset])
 	case 0xE, 0xF:
 		offset := addr & 0xFFFF
-		return uint32(b.memory.GamePakSaveRegion[offset])
+		return uint8(b.memory.GamePakSaveRegion[offset])
 	}
 	return 0
+}
+
+// Reads should be half word aligned (addresses should be divisible by 2)
+// ARM7TDMI uses little-endian addressing
+func (b *Bus) Read16(addr uint32) uint16 {
+	// Clear the last bit, this would make it half word aligned
+	addr &^= 1
+	b0 := b.Read8(addr)
+	b1 := b.Read8(addr + 1)
+
+	// lsb should go first
+	return uint16(b0) | uint16(b1<<8)
+}
+
+// Reads should be word aligned
+func (b *Bus) Read32(addr uint32) uint32 {
+	// clear the last 2 bits to make it divisible by 4
+	addr &^= 0x11
+
+	// Lowest memory address contains the LSB
+	b0 := b.Read8(addr)
+	b1 := b.Read8(addr + 1)
+	b2 := b.Read8(addr + 2)
+	b3 := b.Read8(addr + 3)
+
+	return uint32(b0) | uint32(b1<<8) | uint32(b2<<16) | uint32(b3<<24)
+}
+
+// BIOS -> Write only
+// EWRAM, IWRAM -> Direct write
+func (b *Bus) Write8(addr uint32, val uint8) {
+	switch addr >> 24 {
+	case 0x02:
+		b.memory.EWRam[addr&0x3FFFF] = val
+	case 0x03:
+		b.memory.IWRam[addr&0x7FFF] = val
+
+	// Implement RAM writes
+	case 0x04:
+	// PaletteRamRegion writes the value also into the half word aligned byte to which we are writing to
+	case 0x05:
+		// figure out the offset within the region
+		offset := addr & 0x3FFF
+		// half word align
+		offset &= ^uint32(1)
+		b.memory.PaletteRAMRegion[offset] = val
+	case 0x06:
+		offset := addr & 0x1FFFF
+		if offset >= 0x18000 { // >96kb
+			offset -= 0x8000 // Subtract 32kb
+		}
+
+		// TODO: handle assignment based on the PPU mode
+	case 0x0E, 0x0F:
+		// TODO: save data to the cartridge
+	}
+}
+
+func (b *Bus) Write32(addr uint32, val uint32) {
+	// TODO: Implement
 }
