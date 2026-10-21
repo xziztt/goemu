@@ -12,7 +12,7 @@ func (c *CPU) step() {
 // This function should be called when an operation that could possibly switch mode to THUMB occurs
 func (c *CPU) switchModes() {
 	if setThumb := c.Registers.Common[PC] & 0x1; setThumb == 1 {
-		c.Registers.CPSR.T = true
+		c.Registers.CPSR = (c.Registers.CPSR&^(1<<THUMB_CPSR) | (1 << THUMB_CPSR))
 
 		// Set the 0th bit to 0, PC already contains the value of Rn by this point
 		// &^1 creates 1111.....0

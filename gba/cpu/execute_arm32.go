@@ -1,6 +1,8 @@
 package cpu
 
-import "math/bits"
+import (
+	"math/bits"
+)
 
 // TODO handle fetch decode loop for the next instruction after this is executed
 
@@ -92,8 +94,14 @@ func (c *CPU) Multiply(opcode uint32) {
 
 		// if set is 1, then set Zero Flag and the Sign Flag,
 		if set {
-			c.Registers.CPSR.N = (opcode>>31)&0x1 == 1
-			c.Registers.CPSR.Z = prod == 0
+			sign := ((prod >> 31) & 0x1)
+			zero := uint32(1)
+			if prod == 0 {
+				zero = 0
+			}
+			// clear existing sign bits, set the sign bit using the value of "sign"
+			c.Registers.CPSR = CPSR(uint32(c.Registers.CPSR&^(1<<N)) | (sign & (1 << N)))
+			c.Registers.CPSR = CPSR(uint32(c.Registers.CPSR&^(1<<Z)) | (zero & (1 << Z)))
 		}
 
 	case UMULL, UMLAL:
@@ -108,13 +116,18 @@ func (c *CPU) Multiply(opcode uint32) {
 
 		cycles := c.getCyclesForMul(c.Registers.Common[rs])
 		c.skip(cycles)
-
 		if set {
-			c.Registers.CPSR.N = (prod>>63)&0x1 == 1
-			c.Registers.CPSR.Z = prod == 0
-
+			sign := 0
+			zero := 0
+			if prod != 0 {
+				zero = 1
+			}
+			if (prod>>63)&0x1 == 1 {
+				sign = 1
+			}
+			c.Registers.CPSR = CPSR(uint32(c.Registers.CPSR&^(1<<N)) | uint32((sign & (1 << N))))
+			c.Registers.CPSR = CPSR(uint32(c.Registers.CPSR&^(1<<Z)) | uint32(zero&(1<<Z)))
 		}
-
 	case SMULL, SMLAL:
 		prod := int64(c.Registers.Common[rm]) * int64(c.Registers.Common[rs])
 		if instr == SMLAL {
@@ -128,10 +141,17 @@ func (c *CPU) Multiply(opcode uint32) {
 		c.skip(cycles)
 
 		if set {
-			c.Registers.CPSR.N = (prod>>63)&0x1 == 1
-			c.Registers.CPSR.Z = prod == 0
+			zero := 0
+			sign := 0
+			if (prod>>63)&0x1 == 1 {
+				sign = 1
+			}
+			if prod == 0 {
+				zero = 1
+			}
+			c.Registers.CPSR = CPSR(uint32(c.Registers.CPSR&^(1<<N)) | uint32(sign&(1<<N)))
+			c.Registers.CPSR = CPSR(uint32(c.Registers.CPSR&^(1<<Z)) | uint32(zero&(1<<Z)))
 		}
-
 	}
 }
 
@@ -194,7 +214,8 @@ func (c *CPU) SingleDataTransfer(opcode uint32) {
 				// shift everything by 1
 				offset = uint32(c.Registers.Common[or] >> 1)
 				// if carry bit is set
-				if c.Registers.CPSR.C {
+				carry := (c.Registers.CPSR<<C)&0x1 == 1
+				if carry {
 					// set 31st bit of offset as 1 (carry should rotate right)
 					offset = offset | 0x80000000
 				}
@@ -236,7 +257,7 @@ func (c *CPU) SingleDataTransfer(opcode uint32) {
 			// figure out how much to shift by so that the value at addr is LSB of the word aligned value
 			val := uint32(c.Bus.Read32(addr))
 			// val & 3 gives you the offset from word aligned addr (word aligned = divisible by 4)
-			// << 3 converts it into bits
+			// << 3 converts it into bits (x << n = x * 2^n)
 			rotateBy := (addr & 3) << 3
 			c.Registers.Common[rd] = bits.RotateLeft32(val, -int(rotateBy))
 		}
@@ -252,7 +273,69 @@ func (c *CPU) SingleDataTransfer(opcode uint32) {
 }
 
 func (c *CPU) PSRTransfer(opcode uint32) {
-	// TODO: Implement
+	// MSR -> store into PSR, MRS -> load value from PSR into register
+	isMsr := (opcode>>21)&0x1 == 1
+	if isMsr {
+		c.MSR(opcode)
+	} else {
+		c.MRS(opcode)
+	}
+}
+
+func (c *CPU) MRS(opcode uint32) {
+	spsr := (opcode>>22)&0x1 == 0x1
+	rd := (opcode >> 12) & 0xF
+
+	if spsr {
+		// Last 5 bits of CPSR denotes the mode
+		spsrPos := c.Registers.GetSPSRLoc()
+		c.Registers.Common[rd] = c.Registers.SPSR[spsrPos]
+	} else {
+		c.Registers.Common[rd] = uint32(c.Registers.CPSR)
+	}
+}
+
+func (c *CPU) MSR(opcode uint32) {
+	var value uint32
+	r := (opcode >> 22) & 0x1
+	immediate := (opcode >> 25) & 0x1
+	// r-> 1 = SPSR else CPSR
+	// Get mode of the CPU
+	// in case of MSR and CPSR combination,
+	// 1. we get the current mode of the CPU
+	// 2. Read the data in from the source register or immediate addr
+	// 3. Write the data into the corresponding index of SPSR (depending on current mode)
+
+	writeMask := uint32(0)
+	// bits 16-19 denotes what mask to apply during writes
+
+	if (opcode>>16)&0x1 == 1 {
+		writeMask |= 0xFF000000
+	}
+
+	if (opcode>>19)&0x1 == 1 {
+		writeMask |= 0xFF
+	}
+
+	// if immediate the direct value to write will be at 0-8
+	if immediate == 1 {
+		rotate := ((opcode >> 8) & 0xF) * 2 // Rotate happen in steps of 2 bits
+		imm := (opcode & 0xFF)
+		// rotate value right
+		value = bits.RotateLeft32(imm, -int(rotate))
+		// apply mask and write into SPSR loc
+		// select all bits other bits than the masked ones, clear out the write masked bits, write only into the cleared bits
+	} else {
+		rd := opcode & 0xF
+		value = c.Registers.Common[rd]
+	}
+
+	if r == 1 {
+		spsrLoc := c.Registers.GetSPSRLoc()
+		c.Registers.SPSR[spsrLoc] = (c.Registers.SPSR[spsrLoc] &^ writeMask) | (value & writeMask)
+	} else {
+		c.Registers.CPSR = CPSR(uint32(c.Registers.CPSR&^CPSR(writeMask)) | uint32(value&writeMask))
+	}
 }
 
 func (c *CPU) HalfWord(opcode uint32) {

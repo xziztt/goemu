@@ -270,7 +270,7 @@ func (c *CPU) decodeArm32(op uint32) {
 	case isBranchInstruction(op):
 		c.Branch(op)
 	case isBranchAndExchangeInstruction(op):
-		c.Branch(op)
+		c.BranchExchange(op)
 	case isBlockDataTransfer(op):
 		c.Block(op)
 	case isHalfWord(op):

@@ -73,14 +73,15 @@ func CalculateCycleCount(memoryRegion MemoryRegions, size int) (int, error) {
 	return 0, nil // Invalid region
 }
 
-//	00000000-00003FFF   BIOS - System ROM         (16 KBytes)
-//	00004000-01FFFFFF   Not used
-//	02000000-0203FFFF   WRAM - On-board Work RAM  (256 KBytes) 2 Wait
-//	02040000-02FFFFFF   Not used
-//	03000000-03007FFF   WRAM - On-chip Work RAM   (32 KBytes)
-//	03008000-03FFFFFF   Not used
-//	04000000-040003FE   I/O Registers
-//	04000400-04FFFFFF   Not used
+//	 Read8 reads a single byte from addr using appropriate Region specific rules
+//	 00000000-00003FFF   BIOS - System ROM         (16 KBytes)
+//		00004000-01FFFFFF   Not used
+//		02000000-0203FFFF   WRAM - On-board Work RAM  (256 KBytes) 2 Wait
+//		02040000-02FFFFFF   Not used
+//		03000000-03007FFF   WRAM - On-chip Work RAM   (32 KBytes)
+//		03008000-03FFFFFF   Not used
+//		04000000-040003FE   I/O Registers
+//		04000400-04FFFFFF   Not used
 //
 // 05000000-050003FF   BG/OBJ Palette RAM       (1 KB)
 // 05000400-05FFFFFF   Not used (mirrored)
@@ -191,7 +192,6 @@ func (b *Bus) Write8(addr uint32, val uint8) {
 		if offset >= 0x18000 { // >96kb
 			offset -= 0x8000 // Subtract 32kb
 		}
-
 		// TODO: handle assignment based on the PPU mode
 	case 0x0E, 0x0F:
 		// TODO: save data to the cartridge

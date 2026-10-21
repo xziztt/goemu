@@ -27,8 +27,8 @@ type Registers struct {
 	ABT    ABTRegisters
 	IRQ    IRQRegisters
 	UND    UNDRegisters
-	CPSR   CPSRegisters
-	SPSR   SPSRegisters
+	CPSR   CPSR
+	SPSR   SPSR
 }
 
 const (
@@ -37,22 +37,24 @@ const (
 	SP = 13
 )
 
-type StatusRegister struct {
-	N, Z, C, V, Q, J, E, A, I, F, T bool
-}
+type (
+	CommonRegisters [16]uint32
+	FIQRegisters    [7]uint32
+	SVCRegisters    [2]uint32
+	ABTRegisters    [2]uint32
+	IRQRegisters    [2]uint32
+	UNDRegisters    [2]uint32
+	CPSR            uint32
+	SPSR            [5]uint32
+)
 
-type CommonRegisters [16]uint32
-type FIQRegisters [7]uint32
-type SVCRegisters [2]uint32
-type ABTRegisters [2]uint32
-type IRQRegisters [2]uint32
-type UNDRegisters [2]uint32
-type CPSRegisters StatusRegister
-
-// SPSR is used in case an IRQ occurs.
-// It saves the current state of the CPSR into SPSR and switches over.
-// For example, CPU is in THUMB mode and IRQ occurs, it needs to switch back to THUMB after
-type SPSRegisters [6]StatusRegister
+const (
+	SPSR_fiq = iota
+	SPSR_svc
+	SPSR_abt
+	SPSR_irq
+	SPSR_und
+)
 
 func (r *Registers) initialize() {
 	*r = Registers{
@@ -63,4 +65,34 @@ func (r *Registers) initialize() {
 		IRQ:    IRQRegisters{},
 		UND:    UNDRegisters{},
 	}
+}
+
+type CPSRIndex uint32
+
+const (
+	Mode       CPSRIndex = 0
+	THUMB_CPSR CPSRIndex = 5
+	FIQ_CPSR   CPSRIndex = 6
+	IRQ_CPSR   CPSRIndex = 7
+	V          CPSRIndex = 28
+	C          CPSRIndex = 29
+	Z          CPSRIndex = 30
+	N          CPSRIndex = 31
+)
+
+func (r *Registers) GetSPSRLoc() uint32 {
+	mode := r.CPSR & 0x1F
+	switch mode {
+	case 0x11:
+		return SPSR_fiq
+	case 0x12:
+		return SPSR_svc
+	case 0x13:
+		return SPSR_abt
+	case 0x14:
+		return SPSR_irq
+	case 0x15:
+		return SPSR_und
+	}
+	panic("unedfined")
 }
