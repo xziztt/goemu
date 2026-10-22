@@ -339,7 +339,81 @@ func (c *CPU) MSR(opcode uint32) {
 }
 
 func (c *CPU) HalfWord(opcode uint32) {
-	// TODO: Implement
+	const (
+		STRH  = 1
+		LDRH  = 1
+		LDRSB = 2
+		LDRSH = 3
+	)
+
+	var (
+		pre       = opcode >> 24 & 0x1
+		up        = opcode >> 23 & 0x1
+		imm       = opcode >> 22 & 0x1
+		wb        = opcode >> 21 & 0x1
+		load      = opcode >> 20 & 0x1
+		rn        = opcode >> 16 & 0xF
+		rd        = opcode >> 12 & 0xF
+		operation = (opcode >> 5) & 0x11
+		base      = c.Registers.Common[rn]
+		loc       uint32
+	)
+
+	var offset uint32
+	// if imm flag is set, directly read from bits 0-3 (lower) and 8-11 (upper)
+	if imm == 0 {
+		offset = (opcode & 0xF) | (((opcode >> 8) & 0xF) << 4)
+	} else {
+		// Read from offset register
+		offset = c.Registers.Common[opcode&0xF]
+	}
+
+	// if up, add to base else subtract offset from base
+	if up == 1 {
+		base += offset
+	} else {
+		base -= offset
+	}
+
+	// pre = 1 -> offset before transfer else before
+	if pre == 1 {
+		loc = base
+	} else {
+		loc = c.Registers.Common[rn]
+	}
+
+	// Check if store
+	if load != 1 {
+		switch operation {
+		// STRH -> load from Rd store into Rn + offset (if applicable)
+		case STRH:
+			c.Bus.Write16(loc, uint16(c.Registers.Common[rd]))
+		}
+	} else {
+		switch operation {
+		// LDRH Rd, [Rn] -> load the value at address stored in Rn into Rd
+		case LDRH:
+			// if addr is odd, then ARM7TDMI reads the value and then does a ROR by 8 bits
+			if loc&0x1 == 1 {
+				val := bits.RotateLeft32(uint32(c.Bus.Read16(loc)), int(-8))
+				c.Registers.Common[rd] = val
+			}
+		// For LDSRB, we take the signed 8 bit value and extend it to 32 bit then store into Rd
+		// signed integers are represented in 2s complement form
+		case LDRSB:
+			val := c.Bus.Read8(loc)
+			c.Registers.Common[rd] = uint32(int32(int8(val)))
+		// Load 16 bit, sign extend to 32 bit and load into rd
+		case LDRSH:
+			val := c.Bus.Read16(loc)
+			c.Registers.Common[rd] = uint32(int32(int16(val)))
+		}
+	}
+
+	// write back calculated addr into rn
+	if wb == 1 || pre != 1 {
+		c.Registers.Common[rn] = loc
+	}
 }
 
 func (c *CPU) SignedDataTransfer(opcode uint32) {

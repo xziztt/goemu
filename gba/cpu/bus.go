@@ -180,8 +180,8 @@ func (b *Bus) Write8(addr uint32, val uint8) {
 
 	// Implement RAM writes
 	case 0x04:
-	// PaletteRamRegion writes the value also into the half word aligned byte to which we are writing to
 	case 0x05:
+		// PaletteRamRegion writes the value also into the half word aligned byte to which we are writing to
 		// figure out the offset within the region
 		offset := addr & 0x3FFF
 		// half word align
@@ -200,4 +200,33 @@ func (b *Bus) Write8(addr uint32, val uint8) {
 
 func (b *Bus) Write32(addr uint32, val uint32) {
 	// TODO: Implement
+}
+
+func (b *Bus) Write16(addr uint32, val uint16) {
+	addr &^= 1
+	switch addr >> 24 {
+	// clear out the last bit to half word align it
+	case 0x02:
+		offset := addr & 0x3FFFF
+		b.memory.EWRam[offset] = byte(val)
+		b.memory.EWRam[offset+1] = byte(val >> 8)
+	case 0x03:
+		offset := addr & 0x7FFF
+		b.memory.IWRam[offset] = byte(val)
+		b.memory.IWRam[offset+1] = byte(val >> 8)
+	case 0x04:
+		// TODO: Handle based on register type
+	case 0x05:
+		offset := addr & 0x3FFF
+		b.memory.PaletteRAMRegion[offset] = byte(val)
+		b.memory.PaletteRAMRegion[offset+1] = byte(val)
+	case 0x06:
+		offset := addr & 0x1FFFF
+		if offset >= 0x18000 {
+			offset -= 0x8000
+		}
+		// TODO: Handle assigment based on PPU mode
+	case 0x0E, 0x0F:
+		// TODO: Save data to the cartridge
+	}
 }
