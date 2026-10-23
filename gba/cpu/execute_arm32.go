@@ -4,8 +4,8 @@ import (
 	"math/bits"
 )
 
-// TODO handle fetch decode loop for the next instruction after this is executed
-
+// TODO: handle fetch decode loop for the next instruction after this is executed
+// TODO: handle all cases where cond needs to be checked first
 func (c *CPU) getCyclesForMul(rs uint32) uint32 {
 	mask := uint32(0xFFFFFF00)
 	cycles := uint32(0)
@@ -416,16 +416,100 @@ func (c *CPU) HalfWord(opcode uint32) {
 	}
 }
 
-func (c *CPU) SignedDataTransfer(opcode uint32) {
-	// TODO: Implement
-}
-
+// LDM -> Load a block of memory into registers provided in the list (32 bit each), STM -> Store value from list of registers into memory
 func (c *CPU) Block(opcode uint32) {
-	// TODO: Implement
+	var (
+		rn        = (opcode >> 16) & 0xF
+		registers = (opcode & 0xFFFF)
+		load      = (opcode >> 20) & 0x1
+		wb        = (opcode >> 21) & 0x1
+		// PSR       = (opcode >> 22) & 0x1
+		up  = (opcode >> 23) & 0x1 // U = 1 -> addr moves forward (+4) else backwards (-4)
+		pre = (opcode >> 24) & 0x1 // P = 1 -> block addr starts + or -4 from base addr (depending on value of up)
+	)
+	ones := bits.OnesCount16(uint16(registers))
+	base := c.Registers.Common[rn]
+	var startAddr uint32
+
+	// find starting addr offset, calc by number of bits in register mask * 4 bytes block
+	offset := uint32(ones * 4)
+	// pre = 1 -> BA is always excluded
+	if pre == 0x1 {
+		switch up {
+		// DA (Decrement After) -> do not include BA in operation
+		case 0x0:
+			startAddr = base - offset
+		case 0x1:
+			// IB (Incement Before) -> Does not include BA in the operation, start from BA + 4
+			startAddr = base + 4
+
+		}
+	} else {
+		// pre = 0 -> always include BA
+		switch up {
+		// Decrement Before
+		case 0x0:
+			startAddr = base - offset + 4
+		// Increment After
+		case 0x1:
+			startAddr = base
+		}
+	}
+
+	// TODO: Handle cases where PSR bit = 1
+	if load == 1 {
+		for i := 0; i < 16; i += 1 {
+			// check if bit is set, if yes load value into register from addr
+			if registers&0x1 == 1 {
+				c.Registers.Common[i] = c.Bus.Read32(startAddr)
+				startAddr += 4
+			}
+			registers = registers >> 1
+		}
+	} else {
+		for i := 0; i < 16; i += 1 {
+			if registers&0x1 == 1 {
+				c.Bus.Write32(startAddr, c.Registers.Common[i])
+				startAddr += 4
+			}
+			registers = registers >> 1
+		}
+	}
+
+	// handle write back to base register, if wb = 1, update base register with the end of the block addr
+	// Incrmement of decrement BA with the amount of bytes transferred and store it into base register
+	// value of pre doesn't matter here, as pre is only responsible for determining which location to access relative to the BP
+	// wb is resposilbe for calculating the new BP itself
+	if wb == 1 {
+		switch up {
+		case 0x0:
+			c.Registers.Common[rn] = base - offset
+		case 0x1:
+			c.Registers.Common[rn] = base + offset
+		}
+	}
 }
 
 func (c *CPU) SingleDataSwap(opcode uint32) {
-	// TODO: Implement
+	var (
+		rm   = opcode & 0xF
+		rd   = (opcode >> 12) & 0xF
+		rn   = (opcode >> 16) & 0xF
+		byte = (opcode >> 22) & 0x1
+		val  uint32
+	)
+
+	base := c.Registers.Common[rn]
+	sourceVal := c.Registers.Common[rm]
+	if byte == 0x1 {
+		val = uint32(c.Bus.Read8(base))
+		c.Bus.Write8(base, uint8(sourceVal))
+		c.Registers.Common[rd] = val
+	} else {
+		val = c.Bus.Read32(base)
+		c.Bus.Write32(base, sourceVal)
+		c.Registers.Common[rd] = val
+	}
 }
 
 func (c *CPU) DataProcessing(opcode uint32) {
