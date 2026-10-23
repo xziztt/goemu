@@ -187,14 +187,6 @@ func isHalfWord(opcode uint32) bool {
 	return isMatch(opcode, 0b0000_1110_0000_0000_0000_0000_1001_0000, 0b0000_00000_0000_0000_0000_0000_1001_0000)
 }
 
-// for signed data transfer, we have 2 instructions LDRSB and LDRSH
-// so bit 20 should be set to 1 (store op) and 6-5 should be either 2 or 3 (10 or 11)
-// 4 and 7 are always 1s
-// 27-25 are always 0s
-func isSignedDataTransfer(opcode uint32) bool {
-	return isMatch(opcode, 0b0000_1110_0001_0000_0000_0000_1101_0000, 0b0000_0000_0001_0000_0000_0000_1101_0000)
-}
-
 // Bit    Expl.
 // 31-28  Condition
 // 27-25  Must be 100b for this instruction
@@ -279,8 +271,6 @@ func (c *CPU) decodeArm32(op uint32) {
 		c.Multiply(op)
 	case isPSRTransfer(op):
 		c.PSRTransfer(op)
-	case isSignedDataTransfer(op):
-		c.SignedDataTransfer(op)
 	case isSingleDataSwap(op):
 		c.SingleDataSwap(op)
 	case isSingleDataTransfer(op):
