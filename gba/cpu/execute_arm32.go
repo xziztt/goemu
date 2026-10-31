@@ -4,6 +4,50 @@ import (
 	"math/bits"
 )
 
+func (c *CPU) handleShift(value uint32, shift ShiftType, amount uint32) (uint8, uint32) {
+	var res uint32
+	var carryOut uint32
+
+	switch shift {
+	case LSL:
+		res = value << amount
+		carryOut = (value >> (32 - amount)) & 0x1
+	// Logical shift right
+	case LSR:
+		if amount == 0 {
+			amount = value
+		}
+		carryOut = (value >> (amount - 1)) & 0x1
+		res = value >> amount
+	// Arithmetic Shift Right
+	case ASR:
+		if amount == 0 {
+			amount = value
+		}
+		res = uint32(int32(value)>>amount) & 0x1
+		carryOut = (value >> (amount - 1)) & 0x1
+	// Rotate Right
+	case ROR:
+		// if shift is for 32, it is RRX which means rotate right with carry flag participating
+		if amount == 0 {
+			// shift everything by 1
+			res = uint32(value >> 1)
+			// if carry bit is set
+			carry := (c.Registers.CPSR>>C)&0x1 == 1
+			if carry {
+				// set 31st bit of res as 1 (carry should rotate right)
+				res = res | 0x80000000
+			}
+
+		} else {
+			// else do a normal shift to the right by amount
+			res = bits.RotateLeft32(value, -int(amount))
+		}
+		carryOut = (res >> 31) & 0x1
+	}
+	return uint8(res), carryOut
+}
+
 // TODO: handle fetch decode loop for the next instruction after this is executed
 // TODO: handle all cases where cond needs to be checked first
 func (c *CPU) getCyclesForMul(rs uint32) uint32 {
@@ -206,7 +250,7 @@ func (c *CPU) SingleDataTransfer(opcode uint32) {
 			if shiftAmount == 0 {
 				shiftAmount = 32
 			}
-			offset = uint32(c.Registers.Common[or] >> shiftAmount)
+			offset = uint32(int32(c.Registers.Common[or]) >> shiftAmount)
 		// Rotate Right
 		case ROR:
 			// if shift is for 32, it is RRX which means rotate right with carry flag participating
@@ -498,7 +542,6 @@ func (c *CPU) SingleDataSwap(opcode uint32) {
 		byte = (opcode >> 22) & 0x1
 		val  uint32
 	)
-
 	base := c.Registers.Common[rn]
 	sourceVal := c.Registers.Common[rm]
 	if byte == 0x1 {
@@ -513,5 +556,165 @@ func (c *CPU) SingleDataSwap(opcode uint32) {
 }
 
 func (c *CPU) DataProcessing(opcode uint32) {
-	// TODO: Implement
+	var (
+		nn              = opcode & 0xFF       // if immediate
+		is              = (opcode >> 8) & 0xF // if immediate
+		rm              = (opcode & 0xF)
+		shiftByRegister = (opcode >> 4) & 0x1
+		shift           = (opcode >> 5) & 0x3
+		rs              = (opcode >> 8) & 0xF
+		immShiftAmount  = (opcode >> 7) & 0x1F
+		rd              = (opcode >> 12) & 0xF
+		rn              = (opcode >> 16) & 0xF
+		s               = (opcode >> 20) & 0x1
+		op              = (opcode >> 21) & 0xF
+		imm             = (opcode >> 25) & 0x1
+		op2             uint8
+		carryOut        uint32
+		shiftAmount     uint8
+	)
+
+	if imm == 1 {
+		// if imm = 1, ROR applied based on bits 8-11
+		op2 = uint8(nn)
+		rotate := is
+		op2 = uint8(bits.RotateLeft32(uint32(op2), -int(rotate)))
+	} else {
+		// if imm = 0, apply roatate based on 11-4 bits
+		// if imm = 0, we also need to check bit 4 to see if shift amount is an immediate val or in a reg
+		if shiftByRegister == 1 {
+			shiftAmount = uint8(c.Registers.Common[rs])
+		} else {
+			shiftAmount -= uint8(immShiftAmount)
+		}
+		op2 = uint8(c.Registers.Common[rm])
+		op2, carryOut = c.handleShift(uint32(op2), ShiftType(uint32(shift)), immShiftAmount)
+	}
+
+	switch op {
+	case 0x0:
+		c.Registers.Common[rd] = c.Registers.Common[rn] & op
+	case 0x1:
+		c.Registers.Common[rd] = c.Registers.Common[rn] ^ op
+	case 0x2:
+		c.Registers.Common[rd] = c.Registers.Common[rn] - op
+	case 0x3:
+		c.Registers.Common[rd] = op - c.Registers.Common[rn]
+	case 0x4:
+		c.Registers.Common[rd] = c.Registers.Common[rn] + op
+	case 0x5:
+		c.Registers.Common[rd] = c.Registers.Common[rn] + op + uint32((c.Registers.CPSR>>29)&0x1)
+	case 0x6:
+		// Carry flag = 1 -> No borrow, else borrow
+		c.Registers.Common[rd] = c.Registers.Common[rn] + op + uint32((c.Registers.CPSR>>29)&0x1) - 1
+	case 0x7:
+		c.Registers.Common[rd] = op - c.Registers.Common[rn] + uint32((c.Registers.CPSR>>29)&0x1) - 1
+	case 0x8:
+		res := c.Registers.Common[rn] & uint32(op2)
+		c.Registers.Common[rd] = res
+		c.Registers.CPSR = (c.Registers.CPSR &^ (1 << N)) | (CPSR(res>>31) << N)
+		c.Registers.CPSR = CPSR((res >> 31) & 0x1)
+		if res == 0 {
+			c.Registers.CPSR &^= 1 << Z
+		} else {
+			c.Registers.CPSR |= 1 << Z
+		}
+		c.Registers.CPSR = (c.Registers.CPSR &^ (1 << C)) | (CPSR(carryOut) << C)
+	case 0x9:
+		res := c.Registers.Common[rn] & uint32(op2)
+		c.Registers.Common[rd] = res
+		c.Registers.CPSR = (c.Registers.CPSR &^ (1 << N)) | (CPSR(res>>31) << N)
+		c.Registers.CPSR = CPSR((res >> 31) & 0x1)
+		if res == 0 {
+			c.Registers.CPSR &^= (1 << Z)
+		} else {
+			c.Registers.CPSR |= (1 << Z)
+		}
+		c.Registers.CPSR = (c.Registers.CPSR &^ (1 << C)) | (CPSR(carryOut) << C)
+	// CMP -> Compare and update CPSR flags
+	case 0xA:
+		// C = 1 -> no borrow needed (if rn >= op2)
+		res := int32(c.Registers.Common[rn] - uint32(op2))
+		c.Registers.Common[rd] = uint32(res)
+		c.Registers.CPSR = (c.Registers.CPSR &^ (1 << N)) | (CPSR(res>>31) << N)
+		if res >= 0 {
+			c.Registers.CPSR |= (1 << C)
+		} else {
+			c.Registers.CPSR &^= (1 << C)
+		}
+		if res == 0 {
+			c.Registers.CPSR |= (1 << Z)
+		} else {
+			c.Registers.CPSR &^= (1 << Z)
+		}
+		c.Registers.CPSR = (c.Registers.CPSR &^ (1 << C)) | (CPSR(carryOut) << C)
+	// CMN -> Same as CMP except operation is +
+	case 0xB:
+		val := uint64(c.Registers.Common[rn]) + uint64(op2)
+		res := uint32(val)
+		c.Registers.Common[rd] = res
+		c.Registers.CPSR = (c.Registers.CPSR &^ (1 << N)) | (CPSR(res>>31) << N)
+		if val>>32 == 0x1 {
+			c.Registers.CPSR |= (1 << C)
+		} else {
+			c.Registers.CPSR &^= (1 << C)
+		}
+		if res == 0 {
+			c.Registers.CPSR |= (1 << Z)
+		} else {
+			c.Registers.CPSR &^= (1 << Z)
+		}
+		c.Registers.CPSR = (c.Registers.CPSR &^ (1 << C)) | (CPSR(carryOut) << C)
+	// ORR -> bitwise logical or between rn and op2, result stored in Rd
+	case 0xC:
+		res := c.Registers.Common[rn] | uint32(op2)
+		c.Registers.Common[rd] = res
+		if s == 1 {
+			c.Registers.CPSR = (c.Registers.CPSR &^ (1 << C)) | (CPSR(carryOut) << C)
+			if res == 0 {
+				c.Registers.CPSR = (c.Registers.CPSR&^(1<<Z) | (1 << Z))
+			} else {
+				c.Registers.CPSR = (c.Registers.CPSR&^(1<<Z) | (0 << Z))
+			}
+			c.Registers.CPSR = (c.Registers.CPSR &^ (1 << N)) | (CPSR(res>>31) << N)
+		}
+	// MOV -> move op2 into rd
+	case 0xD:
+		c.Registers.Common[rd] = uint32(op2)
+		if s == 1 {
+			c.Registers.CPSR = (c.Registers.CPSR &^ (1 << C)) | (CPSR(carryOut) << C)
+			if c.Registers.Common[rd] == 0 {
+				c.Registers.CPSR = (c.Registers.CPSR&^(1<<Z) | (1 << Z))
+			} else {
+				c.Registers.CPSR = (c.Registers.CPSR&^(1<<Z) | (0 << Z))
+			}
+			c.Registers.CPSR = (c.Registers.CPSR &^ (1 << N)) | (CPSR(c.Registers.Common[rd]>>31) << N)
+		}
+	// Bit clear -> Rd = Rn and NOT op2
+	case 0xE:
+		res := c.Registers.Common[rn] &^ uint32(op2)
+		c.Registers.Common[rd] = res
+		if s == 1 {
+			c.Registers.CPSR = (c.Registers.CPSR &^ (1 << C)) | (CPSR(carryOut) << C)
+			if c.Registers.Common[rd] == 0 {
+				c.Registers.CPSR = (c.Registers.CPSR&^(1<<Z) | (1 << Z))
+			} else {
+				c.Registers.CPSR = (c.Registers.CPSR&^(1<<Z) | (0 << Z))
+			}
+			c.Registers.CPSR = (c.Registers.CPSR &^ (1 << N)) | (CPSR(c.Registers.Common[rd]>>31) << N)
+		}
+	// MVN -> Rd = not op2
+	case 0xF:
+		res := ^uint32(op2)
+		c.Registers.Common[rd] = res
+		if s == 1 {
+			c.Registers.CPSR = (c.Registers.CPSR &^ (1 << C)) | (CPSR(carryOut) << C)
+			if c.Registers.Common[rd] == 0 {
+				c.Registers.CPSR = (c.Registers.CPSR&^(1<<Z) | (1 << Z))
+			} else {
+				c.Registers.CPSR = (c.Registers.CPSR&^(1<<Z) | (0 << Z))
+			}
+			c.Registers.CPSR = (c.Registers.CPSR &^ (1 << N)) | (CPSR(c.Registers.Common[rd]>>31) << N)
+		}
+	}
 }

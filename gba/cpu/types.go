@@ -20,6 +20,15 @@ const (
 	UND                    // Undefined instruction mode
 )
 
+type ShiftType uint32
+
+const (
+	LSL ShiftType = iota
+	LSR
+	ASR
+	ROR
+)
+
 type Registers struct {
 	Common CommonRegisters
 	FIQ    FIQRegisters
