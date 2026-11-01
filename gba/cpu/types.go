@@ -40,6 +40,15 @@ type Registers struct {
 	SPSR   SPSR
 }
 
+var registers *Registers
+
+func NewRegisters() *Registers {
+	if registers == nil {
+		registers = &Registers{}
+	}
+	return registers
+}
+
 const (
 	PC = 15
 	LR = 14

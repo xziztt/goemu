@@ -9,6 +9,15 @@ type Bus struct {
 	memory Memory
 }
 
+var bus *Bus
+
+func NewBus(memory *Memory) *Bus {
+	if bus == nil {
+		bus = &Bus{}
+	}
+	return bus
+}
+
 func GetMemoryRegion(m uint32) (MemoryRegions, error) {
 	switch {
 	case m >= 0x00 && m < 0x02:

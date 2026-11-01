@@ -1,9 +1,18 @@
 package cpu
 
 type CPU struct {
-	Memory    MemoryRegions
-	Registers Registers
-	Bus       Bus
+	Memory    *Memory
+	Registers *Registers
+	Bus       *Bus
+}
+
+func (c *CPU) New() CPU {
+	memory := NewMemory()
+	return CPU{
+		Memory:    memory,
+		Registers: NewRegisters(),
+		Bus:       NewBus(memory),
+	}
 }
 
 func (c *CPU) step() {

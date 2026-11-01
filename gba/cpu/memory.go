@@ -1,6 +1,16 @@
 package cpu
 
 // Memory regions available according to https://rust-console.github.io/gbatek-gbaonly/#gbamemorymap
+
+var memory *Memory
+
+func NewMemory() *Memory {
+	if memory == nil {
+		memory = &Memory{}
+	}
+	return memory
+}
+
 type MemoryRegions uint32
 
 const (
