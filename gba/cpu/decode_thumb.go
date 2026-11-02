@@ -77,5 +77,5 @@ func isUnconditionalBranch(opcode uint16) bool {
 // }
 
 func isSoftwareIntrrOrBreakpoint(opcode uint16) bool {
-	return isValidMask(0b1111111100000000, opcode, 0b11011111) || isValidMask(0b1111111100000000, opcode, 0b1011111000000000)
+	return isValidMask(0b1111111100000000, opcode, 0b1101111100000000) || isValidMask(0b1111111100000000, opcode, 0b1011111000000000)
 }
