@@ -60,10 +60,12 @@ func (c *CPU) AddSub(opcode uint16) {
 		val              uint32
 		carry            uint32
 		v                uint32
+		op1, op2         uint32
 		signop1, signop2 uint32
 	)
 
 	signop1 = (c.Registers.Common[rs] >> 31) & 0x1
+	op1 = c.Registers.Common[rs]
 	switch op {
 	// Add register
 	case 0x0:
@@ -75,10 +77,11 @@ func (c *CPU) AddSub(opcode uint16) {
 			carry = 0
 		}
 	case 0x1:
-		val = c.Registers.Common[rs] - c.Registers.Common[rn]
+		op2 = c.Registers.Common[rn]
+		val := op1 - op2
 		c.Registers.Common[rd] = val
 		signop2 = (c.Registers.Common[rn] >> 31) & 0x1
-		if val >= 0 {
+		if op1 >= op2 {
 			carry = 1
 		} else {
 			carry = 0
@@ -86,7 +89,8 @@ func (c *CPU) AddSub(opcode uint16) {
 		// for immediate, nn is 3 bits, hence when interpreted as signed 32 bit, it will always be pos
 		// so no need to consider for V calc since the sign is always pos
 	case 0x2:
-		sum = uint64(c.Registers.Common[rs]) + uint64(nn)
+		op264 := uint64(nn)
+		sum = uint64(op1) + op264
 		c.Registers.Common[rd] = val
 		signop2 = 0
 		if sum>>32 == 0x1 {
@@ -95,10 +99,11 @@ func (c *CPU) AddSub(opcode uint16) {
 			carry = 0
 		}
 	case 0x3:
-		val = c.Registers.Common[rs] - uint32(nn)
+		op2 = uint32(nn)
+		val = op1 - op2
 		c.Registers.Common[rd] = val
 		signop2 = 0
-		if val >= 0 {
+		if op1 >= op2 {
 			carry = 1
 		} else {
 			carry = 0
@@ -148,4 +153,100 @@ func (c *CPU) AddSub(opcode uint16) {
 	} else {
 		c.Registers.CPSR &^= (1 << V)
 	}
+}
+
+func (c *CPU) MovCmpAddSubImm(opcode uint16) {
+	var (
+		op                      = (opcode >> 9) & 0x2
+		rd                      = (opcode & 0x7)
+		nn                      = opcode & 0x7F
+		val, carry, overflow, z uint32
+		signOp1, signRes        uint32
+		op1, op2                uint32
+	)
+	op1 = c.Registers.Common[rd]
+	op2 = uint32(nn)
+
+	signOp1 = (c.Registers.Common[rd] >> 31) & 0x1
+	switch op {
+	case 0x0:
+		val = op2
+		c.Registers.Common[rd] = uint32(nn)
+		if nn == 0 {
+			z = 1
+		} else {
+			z = 0
+		}
+	case 0x1:
+		val = op1 - op2
+		if rd == nn {
+			z = 1
+		} else {
+			z = 0
+		}
+
+		if op1 >= op2 {
+			carry = 1
+		} else {
+			carry = 0
+		}
+
+		signRes = (val >> 31) & 0x1
+		if signOp1 == 1 && signRes == 0 {
+			overflow = 1
+		}
+
+	case 0x2:
+		val64 := uint64(op1) + uint64(op2)
+		val = uint32(val64)
+		c.Registers.Common[rd] = val
+		if val == 0 {
+			z = 1
+		} else {
+			z = 0
+		}
+		signRes = (val >> 31) & 0x1
+		if (signOp1 == 0 && signRes == 1) || (signOp1 == 1 && signRes == 0) {
+			overflow = 1
+		} else {
+			overflow = 0
+		}
+		// For add operation, if res does not fit in the 32 bit int var, then c = 1
+		if uint32(val64>>32)&0x1 == 1 {
+			carry = 1
+		} else {
+			carry = 0
+		}
+	case 0x3:
+		val = c.Registers.Common[rd] - uint32(nn)
+		c.Registers.Common[rd] = val
+		if val == 0 {
+			z = 1
+		} else {
+			z = 0
+		}
+		if (signOp1 == 0 && signRes == 1) || (signOp1 == 1 && signRes == 0) {
+			overflow = 1
+		} else {
+			overflow = 0
+		}
+
+		// for sub, if res >=0, that means no borrow, then c = 1 else 0
+		if op1 >= op2 {
+			carry = 1
+		} else {
+			carry = 0
+		}
+	}
+
+	// N is the 31st bit of the value
+	if (val>>31)&0x1 == 1 {
+		c.Registers.SetCPSRBit(N, 1)
+	} else {
+		c.Registers.SetCPSRBit(N, 0)
+	}
+
+	c.Registers.SetCPSRBit(C, carry)
+	c.Registers.SetCPSRBit(V, overflow)
+	c.Registers.SetCPSRBit(Z, z)
 }

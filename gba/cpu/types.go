@@ -114,3 +114,11 @@ func (r *Registers) GetSPSRLoc() uint32 {
 	}
 	panic("unedfined")
 }
+
+func (r *Registers) SetCPSRBit(index CPSRIndex, val uint32) {
+	if val == 1 {
+		r.CPSR |= (1 << index)
+	} else {
+		r.CPSR &^= (1 << index)
+	}
+}
