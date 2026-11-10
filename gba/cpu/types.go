@@ -122,3 +122,7 @@ func (r *Registers) SetCPSRBit(index CPSRIndex, val uint32) {
 		r.CPSR &^= (1 << index)
 	}
 }
+
+func (r *Registers) GetCPSRBit(index CPSRIndex) uint32 {
+	return (uint32(r.CPSR) >> index) & 0x1
+}

@@ -1,5 +1,9 @@
 package cpu
 
+import (
+	"math/bits"
+)
+
 func (c *CPU) MoveShiftedRegister(opcode uint16) {
 	var (
 		rd           = opcode & 0x7
@@ -249,4 +253,192 @@ func (c *CPU) MovCmpAddSubImm(opcode uint16) {
 	c.Registers.SetCPSRBit(C, carry)
 	c.Registers.SetCPSRBit(V, overflow)
 	c.Registers.SetCPSRBit(Z, z)
+}
+
+func (c *CPU) ALUOperations(opcode uint16) {
+	var (
+		rd                        = opcode & 0x7
+		rs                        = (opcode >> 3) & 0x7
+		op                        = (opcode >> 6) & 0xF
+		carry, v, op1, op2, val   uint32
+		op1Sign, op2Sign, resSign uint32
+	)
+
+	op1 = c.Registers.Common[rd]
+	op2 = c.Registers.Common[rs]
+	op1Sign = (op1 >> 31) & 0x1
+	op2Sign = (op2 >> 31) & 0x1
+
+	switch op {
+	// ADD
+	case 0x0:
+		val64 := uint64(op1) + uint64(op2)
+		val = uint32(val64)
+		if (val64>>32)&0x1 == 1 {
+			carry = 1
+		} else {
+			carry = 0
+		}
+		resSign = (val >> 31) & 0x1
+		if op1Sign == op2Sign && op1Sign != resSign {
+			v = 1
+		} else {
+			v = 0
+		}
+		c.Registers.Common[rd] = val
+
+	// EOR
+	case 0x1:
+		val = op1 ^ op2
+		c.Registers.Common[rd] = val
+	// LSL
+	case 0x2:
+		rv := (op2 & 0xFF)
+		val = op1 << rv
+		c.Registers.Common[rd] = val
+		// C is the last shifted out bit
+		if rv != 0 {
+			carry = (op1 >> (32 - rv)) & 0x1
+		}
+	// LSR
+	case 0x3:
+		rv := (op2 & 0xFF)
+		val = op1 >> rv
+		c.Registers.Common[rd] = val
+		if rv != 0 {
+			carry = (op1 >> (rv - 1)) & 0x1
+		}
+
+	// ASR
+	case 0x4:
+		rv := uint32(int32(op2 & 0xFF))
+		val = op1 >> rv
+		c.Registers.Common[rd] = val
+		if rv != 0 {
+			carry = (op1 >> (rv - 1)) & 0x1
+		}
+	// ADC
+	case 0x5:
+		val64 := uint64(op1) + uint64(op2) + uint64(c.Registers.GetCPSRBit(C))
+		val = uint32(val64)
+		c.Registers.Common[rd] = val
+
+		if (val64>>32)&0x1 == 1 {
+			carry = 1
+		} else {
+			carry = 0
+		}
+		resSign = (val >> 31) & 0x1
+		if op1Sign == op2Sign && op1Sign != resSign {
+			v = 1
+		} else {
+			v = 0
+		}
+	// SBC
+	case 0x6:
+		val = op1 - op2 - c.Registers.GetCPSRBit(C)
+		c.Registers.Common[rd] = val
+		if op1 >= op2 {
+			carry = 1
+		} else {
+			carry = 0
+		}
+
+		resSign = (val >> 31) * 0x1
+		if op1Sign != op2Sign && op1Sign != resSign {
+			v = 1
+		} else {
+			v = 0
+		}
+
+	// ROR
+	case 0x7:
+		rv := op2 & 0xFF
+		val = bits.RotateLeft32(op1, -int(rv))
+		// if rv != 0, set to 31st bit of rotated value
+		if rv != 0 {
+			carry = (val >> 31) & 0x1
+		}
+		c.Registers.Common[rd] = val
+	// TST
+	case 0x8:
+		val = op1 & op2
+	// NEG
+	case 0x9:
+		val = 0 - op2
+		c.Registers.Common[rd] = val
+		if op2 == 0 {
+			carry = 1
+		} else {
+			carry = 0
+		}
+		resSign = (val >> 31) & 0x1
+		if op1Sign != op2Sign && op1Sign != resSign {
+			v = 1
+		} else {
+			v = 0
+		}
+
+	// CMP
+	case 0xA:
+		val = op1 - op2
+		if op1 >= op2 {
+			carry = 1
+		} else {
+			carry = 0
+		}
+		resSign = (val >> 31) & 0x1
+		if op1Sign != op2Sign && op1Sign != resSign {
+			v = 1
+		} else {
+			v = 0
+		}
+
+	// CMN
+	case 0xB:
+		val64 := uint64(op1) + uint64(op2)
+		val = uint32(val64)
+		if (val64>>32)&0x1 == 1 {
+			carry = 1
+		} else {
+			carry = 0
+		}
+		resSign = (val >> 31) & 0x1
+		if op1Sign == op2Sign && op1Sign != resSign {
+			v = 1
+		} else {
+			v = 0
+		}
+	// ORR
+	case 0xC:
+		val = op1 | op2
+		c.Registers.Common[rd] = val
+	// MUL
+	case 0xD:
+		val = op1 * op2
+		c.Registers.Common[rd] = val
+	// BIC
+	case 0xE:
+		val = op1 &^ op2
+		c.Registers.Common[rd] = val
+	// MVN
+	case 0xF:
+		val = ^op2
+		c.Registers.Common[rd] = val
+	}
+
+	if val == 0 {
+		c.Registers.SetCPSRBit(Z, 1)
+	} else {
+		c.Registers.SetCPSRBit(Z, 0)
+	}
+
+	// 31st bit is N
+	if (val>>31)&0x1 == 1 {
+		c.Registers.SetCPSRBit(N, 1)
+	} else {
+		c.Registers.SetCPSRBit(N, 0)
+	}
+	c.Registers.SetCPSRBit(C, carry)
+	c.Registers.SetCPSRBit(V, v)
 }
