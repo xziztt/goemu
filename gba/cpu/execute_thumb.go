@@ -18,19 +18,26 @@ func (c *CPU) MoveShiftedRegister(opcode uint16) {
 	switch op {
 	// LSL -> Shfit left and fill empty pos with 0
 	case 0x0:
-		val = c.Registers.Common[rs] << offset
-		c.Registers.Common[rd] = val
+		val = (c.Registers.Common[rs] << offset)
 		shifted = (c.Registers.Common[rs] >> (32 - offset)) & 0x1
+		c.Registers.Common[rd] = val
 	// LSR -> shift right, fill empty pos with 0
 	case 0x1:
-		val = c.Registers.Common[rs] >> offset
-		c.Registers.Common[rd] = val
+		// LSR#0/ASR#0 are interpreted as LSR#32/ASR#32
+		if offset == 0 {
+			offset = 32
+		}
+		val = (c.Registers.Common[rs] >> offset)
 		shifted = (c.Registers.Common[rs] >> (offset - 1)) & 0x1
+		c.Registers.Common[rd] = val
 	// ASR -> arithmetic shift right, calc sign using int32() then shift
 	case 0x2:
-		val = uint32(int16(c.Registers.Common[rs]) >> offset)
-		c.Registers.Common[rd] = val
+		if offset == 0 {
+			offset = 32
+		}
+		val = uint32(int32(c.Registers.Common[rs]) >> offset)
 		shifted = (c.Registers.Common[rs] >> (offset - 1)) & 0x1
+		c.Registers.Common[rd] = val
 	}
 
 	// set flags, Z -> if res is 0, N -> bit 31 of val, C -> last bit shifted out bit
@@ -46,10 +53,12 @@ func (c *CPU) MoveShiftedRegister(opcode uint16) {
 		c.Registers.CPSR &^= (1 << N)
 	}
 
-	if shifted == 1 {
-		c.Registers.CPSR |= (1 << C)
-	} else {
-		c.Registers.CPSR &^= (1 << N)
+	if offset != 0 {
+		if shifted == 1 {
+			c.Registers.CPSR |= (1 << C)
+		} else {
+			c.Registers.CPSR &^= (1 << C)
+		}
 	}
 }
 
