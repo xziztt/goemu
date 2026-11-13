@@ -64,17 +64,17 @@ func (c *CPU) MoveShiftedRegister(opcode uint16) {
 
 func (c *CPU) AddSub(opcode uint16) {
 	var (
-		rd               = opcode & 0x7
-		rs               = (opcode >> 3) & 0x7
-		rn               = (opcode >> 6) & 0x7
-		nn               = (opcode >> 6) & 0x7
-		op               = (opcode >> 9) & 0x3
-		sum              uint64
-		val              uint32
-		carry            uint32
-		v                uint32
-		op1, op2         uint32
-		signop1, signop2 uint32
+		rd                        = opcode & 0x7
+		rs                        = (opcode >> 3) & 0x7
+		rn                        = (opcode >> 6) & 0x7
+		nn                        = (opcode >> 6) & 0x7
+		op                        = (opcode >> 9) & 0x3
+		sum                       uint64
+		val                       uint32
+		carry                     uint32
+		v                         uint32
+		op1, op2                  uint32
+		signop1, signop2, signRes uint32
 	)
 
 	signop1 = (c.Registers.Common[rs] >> 31) & 0x1
@@ -83,6 +83,8 @@ func (c *CPU) AddSub(opcode uint16) {
 	// Add register
 	case 0x0:
 		sum = uint64(c.Registers.Common[rs]) + uint64(c.Registers.Common[rn])
+		val = uint32(sum)
+		signop2 = (c.Registers.Common[rn] >> 31) & 0x1
 		c.Registers.Common[rd] = val
 		if sum>>32 == 0x1 {
 			carry = 1
@@ -91,9 +93,9 @@ func (c *CPU) AddSub(opcode uint16) {
 		}
 	case 0x1:
 		op2 = c.Registers.Common[rn]
-		val := op1 - op2
+		val = uint32(int32(op1 - op2))
 		c.Registers.Common[rd] = val
-		signop2 = (c.Registers.Common[rn] >> 31) & 0x1
+		signop2 = (op2 >> 31) & 0x1
 		if op1 >= op2 {
 			carry = 1
 		} else {
@@ -104,6 +106,7 @@ func (c *CPU) AddSub(opcode uint16) {
 	case 0x2:
 		op264 := uint64(nn)
 		sum = uint64(op1) + op264
+		val = uint32(sum)
 		c.Registers.Common[rd] = val
 		signop2 = 0
 		if sum>>32 == 0x1 {
@@ -125,25 +128,25 @@ func (c *CPU) AddSub(opcode uint16) {
 
 	// N,Z,C and V are affected
 	if val == 0 {
-		c.Registers.CPSR |= (1 << Z)
+		c.Registers.SetCPSRBit(Z, 1)
 	} else {
-		c.Registers.CPSR &^= (1 << Z)
+		c.Registers.SetCPSRBit(Z, 0)
 	}
 
 	// for add C = carry past 31st bit, for sub c = 0 if borrow else c = 1
 	if carry == 1 {
-		c.Registers.CPSR |= (1 << C)
+		c.Registers.SetCPSRBit(C, 1)
 	} else {
-		c.Registers.CPSR &^= (1 << Z)
+		c.Registers.SetCPSRBit(C, 0)
 	}
 
 	if (val>>31)&0x1 == 1 {
-		c.Registers.CPSR |= (1 << N)
+		c.Registers.SetCPSRBit(N, 1)
 	} else {
-		c.Registers.CPSR &^= (1 << N)
+		c.Registers.SetCPSRBit(N, 0)
 	}
 
-	signRes := (val >> 31) & 0x1
+	signRes = (val >> 31) & 0x1
 
 	switch op {
 	// in case of add, v = 1 in 2 cases -> op1 and op2 both pos and res neg, op1 and op2 both neg and res pos
@@ -162,9 +165,9 @@ func (c *CPU) AddSub(opcode uint16) {
 		}
 	}
 	if v == 1 {
-		c.Registers.CPSR |= (1 << V)
+		c.Registers.SetCPSRBit(V, 1)
 	} else {
-		c.Registers.CPSR &^= (1 << V)
+		c.Registers.SetCPSRBit(V, 0)
 	}
 }
 

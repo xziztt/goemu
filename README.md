@@ -1,3 +1,3 @@
 # [WIP] A Golang based GBA emulator
 
-Writing a golang based GBA emulator, aim is to get a minimal ROM to boot up.
+GBA Emulator written in go, tests are ai generated.
