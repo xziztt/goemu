@@ -171,9 +171,9 @@ func (c *CPU) AddSub(opcode uint16) {
 
 func (c *CPU) MovCmpAddSubImm(opcode uint16) {
 	var (
-		op                      = (opcode >> 9) & 0x2
-		rd                      = (opcode & 0x7)
-		nn                      = opcode & 0x7F
+		op                      = (opcode >> 11) & 0x3
+		rd                      = (opcode >> 8) & 0x7
+		nn                      = opcode & 0xFF
 		val, carry, overflow, z uint32
 		signOp1, signRes        uint32
 		op1, op2                uint32
@@ -181,19 +181,25 @@ func (c *CPU) MovCmpAddSubImm(opcode uint16) {
 	op1 = c.Registers.Common[rd]
 	op2 = uint32(nn)
 
-	signOp1 = (c.Registers.Common[rd] >> 31) & 0x1
+	carry = c.Registers.GetCPSRBit(C)
+	overflow = c.Registers.GetCPSRBit(V)
+	z = c.Registers.GetCPSRBit(Z)
+
+	signOp1 = (op1 >> 31) & 0x1
 	switch op {
+	// MOV
 	case 0x0:
 		val = op2
-		c.Registers.Common[rd] = uint32(nn)
+		c.Registers.Common[rd] = val
 		if nn == 0 {
 			z = 1
 		} else {
 			z = 0
 		}
+	// CMP
 	case 0x1:
 		val = op1 - op2
-		if rd == nn {
+		if op1 == uint32(nn) {
 			z = 1
 		} else {
 			z = 0
@@ -206,10 +212,13 @@ func (c *CPU) MovCmpAddSubImm(opcode uint16) {
 		}
 
 		signRes = (val >> 31) & 0x1
+		// only case when overflow would occur is if op1 is negative and res is +ve because signop2 will always be 0
 		if signOp1 == 1 && signRes == 0 {
 			overflow = 1
+		} else {
+			overflow = 0
 		}
-
+	// ADD
 	case 0x2:
 		val64 := uint64(op1) + uint64(op2)
 		val = uint32(val64)
@@ -220,7 +229,8 @@ func (c *CPU) MovCmpAddSubImm(opcode uint16) {
 			z = 0
 		}
 		signRes = (val >> 31) & 0x1
-		if (signOp1 == 0 && signRes == 1) || (signOp1 == 1 && signRes == 0) {
+		// since signop2 is always 0, only case is if signop1 = 0 and signres is negative
+		if signOp1 == 0 && signRes == 1 {
 			overflow = 1
 		} else {
 			overflow = 0
@@ -231,6 +241,7 @@ func (c *CPU) MovCmpAddSubImm(opcode uint16) {
 		} else {
 			carry = 0
 		}
+	// SUB
 	case 0x3:
 		val = c.Registers.Common[rd] - uint32(nn)
 		c.Registers.Common[rd] = val
@@ -239,7 +250,9 @@ func (c *CPU) MovCmpAddSubImm(opcode uint16) {
 		} else {
 			z = 0
 		}
-		if (signOp1 == 0 && signRes == 1) || (signOp1 == 1 && signRes == 0) {
+		signRes = (val >> 31) & 0x1
+		// signop2 will always be positive, hence only case is when signop1 = 1 and signres = 0
+		if signOp1 == 1 && signRes == 0 {
 			overflow = 1
 		} else {
 			overflow = 0
@@ -278,23 +291,15 @@ func (c *CPU) ALUOperations(opcode uint16) {
 	op2 = c.Registers.Common[rs]
 	op1Sign = (op1 >> 31) & 0x1
 	op2Sign = (op2 >> 31) & 0x1
+	carry = c.Registers.GetCPSRBit(C)
+	v = c.Registers.GetCPSRBit(V)
 
 	switch op {
-	// ADD
+	// AND
 	case 0x0:
-		val64 := uint64(op1) + uint64(op2)
+		val64 := uint64(op1) & uint64(op2)
 		val = uint32(val64)
-		if (val64>>32)&0x1 == 1 {
-			carry = 1
-		} else {
-			carry = 0
-		}
 		resSign = (val >> 31) & 0x1
-		if op1Sign == op2Sign && op1Sign != resSign {
-			v = 1
-		} else {
-			v = 0
-		}
 		c.Registers.Common[rd] = val
 
 	// EOR
@@ -321,10 +326,17 @@ func (c *CPU) ALUOperations(opcode uint16) {
 
 	// ASR
 	case 0x4:
-		rv := uint32(int32(op2 & 0xFF))
-		val = op1 >> rv
+		rv := op2 & 0xFF
+		// shift signed op1 by rv
+		val = uint32(int32(op1) >> rv)
 		c.Registers.Common[rd] = val
-		if rv != 0 {
+		// LSR/ASR#32 is redirected as opcode LSR/ASR#0
+		// Each ASR fills the bit to the right with the sign bit, ie it moves leftmost 1 to the right and insert a 1 to the left of it
+		if rv >= 32 {
+			// carry bit is the last shifted bit out, hence this will always be the 31st bit (sign bit) if rv >= 32
+			carry = (op1 >> 31) & 0x1
+			// else rv will be the last shifted out bit
+		} else if rv != 0 {
 			carry = (op1 >> (rv - 1)) & 0x1
 		}
 	// ADC
@@ -346,9 +358,10 @@ func (c *CPU) ALUOperations(opcode uint16) {
 		}
 	// SBC
 	case 0x6:
-		val = op1 - op2 - c.Registers.GetCPSRBit(C)
+		val = op1 - op2 - uint32(1-carry)
 		c.Registers.Common[rd] = val
-		if op1 >= op2 {
+		// need to consider the case where op2 + carry value overflows
+		if uint64(op1) >= uint64(op2)+uint64((1-carry)) {
 			carry = 1
 		} else {
 			carry = 0
@@ -383,7 +396,8 @@ func (c *CPU) ALUOperations(opcode uint16) {
 			carry = 0
 		}
 		resSign = (val >> 31) & 0x1
-		if op1Sign != op2Sign && op1Sign != resSign {
+		// op1 is always 0
+		if op2 != 0 && (op2Sign == resSign) {
 			v = 1
 		} else {
 			v = 0
