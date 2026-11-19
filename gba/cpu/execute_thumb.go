@@ -466,3 +466,85 @@ func (c *CPU) ALUOperations(opcode uint16) {
 	c.Registers.SetCPSRBit(C, carry)
 	c.Registers.SetCPSRBit(V, v)
 }
+
+// Hi Register operations
+
+func (c *CPU) HiRegisterOperations(opcode uint16) {
+	var (
+		rd   = uint32(opcode & 0x7)
+		rs   = uint32((opcode >> 3) & 0x7)
+		msbs = uint32((opcode >> 6) & 0x1)
+		msbd = uint32((opcode >> 7) & 0x1)
+		op   = uint32((opcode >> 8) & 0x3)
+		val  uint32
+	)
+
+	rd = (msbd << 3) | rd
+	rs = (msbs << 3) | rs
+	switch op {
+	// ADD
+	// for ADD and MOV, if the destination register is PC, clear the last bit to half word align it
+	case 0:
+		val = c.Registers.Common[rd] + c.Registers.Common[rs]
+		if rd == PC {
+			val &^= uint32(0x1)
+		}
+		c.Registers.Common[rd] = val
+	// CMP
+	case 1:
+		val = c.Registers.Common[rd] - c.Registers.Common[rs]
+		// only CMP affects the CPSR flags
+		if c.Registers.Common[rd] >= c.Registers.Common[rs] {
+			c.Registers.SetCPSRBit(C, 1)
+		} else {
+			c.Registers.SetCPSRBit(C, 0)
+		}
+
+		if val == 0 {
+			c.Registers.SetCPSRBit(Z, 1)
+		} else {
+			c.Registers.SetCPSRBit(Z, 0)
+		}
+
+		signOp1 := (c.Registers.Common[rd] >> 31) & 0x1
+		signOp2 := (c.Registers.Common[rs] >> 31) & 0x1
+
+		signRes := (val >> 31) & 0x1
+
+		if (signOp1 != signOp2) && (signOp1 != signRes) {
+			c.Registers.SetCPSRBit(V, 1)
+		} else {
+			c.Registers.SetCPSRBit(V, 0)
+		}
+
+		if (val>>31)&0x1 == 0x1 {
+			c.Registers.SetCPSRBit(N, 1)
+		} else {
+			c.Registers.SetCPSRBit(N, 0)
+		}
+
+	// MOV
+	case 2:
+		val = c.Registers.Common[rs]
+		if rd == PC {
+			val &^= uint32(0x1)
+		}
+		c.Registers.Common[rd] = val
+	// NOP is a special case of MOV where rd = rs
+	// BX
+	case 3:
+		// BLX is unsupported for GBA
+		// only need to handle BX
+		val = c.Registers.Common[rs]
+		// if bit 0 of Rs is 0, switch to ARM mode, else remain in THUMB mode
+		switchToArm := (val & 0x1) == 0x0
+		if switchToArm {
+			c.Registers.SetCPSRBit(THUMB_CPSR, 0)
+			// need to be word aligned since ARM mode, and set PC to word aligned value
+			c.Registers.Common[PC] = (val &^ 0x3)
+		} else {
+			// Half word align for thumb
+			c.Registers.Common[PC] = (val &^ 0x1)
+		}
+	}
+}

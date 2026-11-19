@@ -1322,3 +1322,413 @@ func TestALUOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestHiRegisterOperations(t *testing.T) {
+	const (
+		baseCPSR CPSR = 0x0000003F // System mode, Thumb state
+		flagMask CPSR = 0xF0000000
+		allFlags CPSR = flagMask
+	)
+
+	tests := []struct {
+		name        string
+		op          uint16
+		rd          uint16
+		rs          uint16
+		destination uint32
+		source      uint32
+		pc          uint32
+		initial     CPSR
+		wantValue   uint32
+		wantPC      uint32
+		wantCPSR    CPSR
+		reason      string
+	}{
+		{
+			name:        "ADD low source to high destination",
+			op:          0,
+			rd:          8,
+			rs:          1,
+			destination: 5,
+			source:      3,
+			pc:          0x1004,
+			initial:     allFlags,
+			wantValue:   8,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | allFlags,
+			reason:      "R8 receives 5 + 3; high-register ADD preserves NZCV",
+		},
+		{
+			name:        "ADD high source to low destination",
+			op:          0,
+			rd:          2,
+			rs:          9,
+			destination: 10,
+			source:      20,
+			pc:          0x1004,
+			wantValue:   30,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR,
+			reason:      "The source extension bit selects R9",
+		},
+		{
+			name:        "ADD wraps without changing flags",
+			op:          0,
+			rd:          10,
+			rs:          11,
+			destination: 0xFFFFFFFF,
+			source:      1,
+			pc:          0x1004,
+			initial:     CPSR(1) << V,
+			wantValue:   0,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | CPSR(1)<<V,
+			reason:      "The result wraps to zero, but high-register ADD preserves NZCV",
+		},
+		{
+			name:        "ADD same register",
+			op:          0,
+			rd:          8,
+			rs:          8,
+			destination: 7,
+			source:      7,
+			pc:          0x1004,
+			initial:     allFlags,
+			wantValue:   14,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | allFlags,
+			reason:      "Both operands read the original R8 value",
+		},
+		{
+			name:        "ADD reads PC operand",
+			op:          0,
+			rd:          8,
+			rs:          15,
+			destination: 2,
+			source:      0x1006,
+			pc:          0x1006,
+			wantValue:   0x1008,
+			wantPC:      0x1006,
+			wantCPSR:    baseCPSR,
+			reason:      "An instruction at 0x1002 reads PC as 0x1006",
+		},
+		{
+			name:        "ADD writes PC and stays Thumb",
+			op:          0,
+			rd:          15,
+			rs:          8,
+			destination: 0x1004,
+			source:      3,
+			pc:          0x1004,
+			initial:     allFlags,
+			wantValue:   0x1006,
+			wantPC:      0x1006,
+			wantCPSR:    baseCPSR | allFlags,
+			reason:      "ADD PC clears target bit 0 and preserves Thumb state and NZCV",
+		},
+		{
+			name:        "CMP equal",
+			op:          1,
+			rd:          8,
+			rs:          1,
+			destination: 5,
+			source:      5,
+			pc:          0x1004,
+			initial:     allFlags,
+			wantValue:   5,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | CPSR(1)<<Z | CPSR(1)<<C,
+			reason:      "Equal operands set Z and C; Rd remains unchanged",
+		},
+		{
+			name:        "CMP unsigned borrow",
+			op:          1,
+			rd:          1,
+			rs:          8,
+			destination: 3,
+			source:      5,
+			pc:          0x1004,
+			initial:     allFlags,
+			wantValue:   3,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | CPSR(1)<<N,
+			reason:      "3 - 5 produces -2 with a borrow and no signed overflow",
+		},
+		{
+			name:        "CMP greater",
+			op:          1,
+			rd:          9,
+			rs:          10,
+			destination: 10,
+			source:      3,
+			pc:          0x1004,
+			initial:     allFlags,
+			wantValue:   10,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | CPSR(1)<<C,
+			reason:      "10 - 3 is positive with no unsigned borrow",
+		},
+		{
+			name:        "CMP negative minus positive overflow",
+			op:          1,
+			rd:          8,
+			rs:          1,
+			destination: 0x80000000,
+			source:      1,
+			pc:          0x1004,
+			wantValue:   0x80000000,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | CPSR(1)<<C | CPSR(1)<<V,
+			reason:      "Signed minimum minus 1 overflows; unsigned subtraction has no borrow",
+		},
+		{
+			name:        "CMP positive minus negative overflow",
+			op:          1,
+			rd:          8,
+			rs:          9,
+			destination: 0x7FFFFFFF,
+			source:      0xFFFFFFFF,
+			pc:          0x1004,
+			wantValue:   0x7FFFFFFF,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | CPSR(1)<<N | CPSR(1)<<V,
+			reason:      "Signed maximum minus -1 overflows and requires an unsigned borrow",
+		},
+		{
+			name:        "CMP reads PC operand",
+			op:          1,
+			rd:          8,
+			rs:          15,
+			destination: 0x1006,
+			source:      0x1006,
+			pc:          0x1006,
+			wantValue:   0x1006,
+			wantPC:      0x1006,
+			wantCPSR:    baseCPSR | CPSR(1)<<Z | CPSR(1)<<C,
+			reason:      "PC already contains instruction address plus 4, making the operands equal",
+		},
+		{
+			name:        "MOV low source to high destination",
+			op:          2,
+			rd:          8,
+			rs:          1,
+			destination: 0xDEADBEEF,
+			source:      0,
+			pc:          0x1004,
+			initial:     allFlags,
+			wantValue:   0,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | allFlags,
+			reason:      "MOV copies zero and preserves all flags",
+		},
+		{
+			name:        "MOV high source to low destination",
+			op:          2,
+			rd:          2,
+			rs:          12,
+			destination: 0,
+			source:      0x87654321,
+			pc:          0x1004,
+			wantValue:   0x87654321,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR,
+			reason:      "The source extension bit selects R12; MOV preserves NZCV",
+		},
+		{
+			name:        "MOV same register acts as NOP",
+			op:          2,
+			rd:          8,
+			rs:          8,
+			destination: 0x12345678,
+			source:      0x12345678,
+			pc:          0x1004,
+			initial:     allFlags,
+			wantValue:   0x12345678,
+			wantPC:      0x1004,
+			wantCPSR:    baseCPSR | allFlags,
+			reason:      "MOV R8,R8 preserves the register and CPSR",
+		},
+		{
+			name:        "MOV reads PC",
+			op:          2,
+			rd:          8,
+			rs:          15,
+			destination: 0,
+			source:      0x1006,
+			pc:          0x1006,
+			initial:     allFlags,
+			wantValue:   0x1006,
+			wantPC:      0x1006,
+			wantCPSR:    baseCPSR | allFlags,
+			reason:      "MOV reads PC as instruction address plus 4",
+		},
+		{
+			name:        "MOV writes PC and stays Thumb",
+			op:          2,
+			rd:          15,
+			rs:          8,
+			destination: 0x1004,
+			source:      0x08000103,
+			pc:          0x1004,
+			initial:     allFlags,
+			wantValue:   0x08000102,
+			wantPC:      0x08000102,
+			wantCPSR:    baseCPSR | allFlags,
+			reason:      "MOV PC clears target bit 0 and preserves Thumb state",
+		},
+		{
+			name:        "MOV PC to PC branches",
+			op:          2,
+			rd:          15,
+			rs:          15,
+			destination: 0x1006,
+			source:      0x1006,
+			pc:          0x1006,
+			initial:     allFlags,
+			wantValue:   0x1006,
+			wantPC:      0x1006,
+			wantCPSR:    baseCPSR | allFlags,
+			reason:      "MOV PC,PC targets instruction address plus 4 and stays Thumb",
+		},
+		{
+			name:     "BX low register selects Thumb",
+			op:       3,
+			rs:       1,
+			source:   0x08000103,
+			pc:       0x1004,
+			initial:  allFlags,
+			wantPC:   0x08000102,
+			wantCPSR: baseCPSR | allFlags,
+			reason:   "Target bit 0 selects Thumb and is cleared from the branch address",
+		},
+		{
+			name:     "BX high register selects ARM",
+			op:       3,
+			rs:       10,
+			source:   0x08000100,
+			pc:       0x1004,
+			initial:  allFlags,
+			wantPC:   0x08000100,
+			wantCPSR: (baseCPSR &^ (CPSR(1) << THUMB_CPSR)) | allFlags,
+			reason:   "An even target selects ARM while preserving NZCV",
+		},
+		{
+			name:     "BX ARM target clears bit one",
+			op:       3,
+			rs:       8,
+			source:   0x08000102,
+			pc:       0x1004,
+			wantPC:   0x08000100,
+			wantCPSR: baseCPSR &^ (CPSR(1) << THUMB_CPSR),
+			reason:   "ARM branch targets are aligned to four bytes",
+		},
+		{
+			name:     "BX LR selects Thumb",
+			op:       3,
+			rs:       14,
+			source:   0x08000201,
+			pc:       0x1004,
+			wantPC:   0x08000200,
+			wantCPSR: baseCPSR,
+			reason:   "An odd return address in LR selects Thumb",
+		},
+		{
+			name:     "BX PC switches to ARM",
+			op:       3,
+			rs:       15,
+			source:   0x1006,
+			pc:       0x1006,
+			initial:  allFlags,
+			wantPC:   0x1004,
+			wantCPSR: (baseCPSR &^ (CPSR(1) << THUMB_CPSR)) | allFlags,
+			reason:   "At instruction address 0x1002, BX PC reads 0x1006 and aligns it to 0x1004",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := CPU{
+				Registers: &Registers{},
+			}
+
+			// Distinct values help detect writes to the wrong register.
+			for index := range c.Registers.Common {
+				c.Registers.Common[index] = 0xA0000000 + uint32(index)
+			}
+
+			if tt.op != 3 {
+				c.Registers.Common[tt.rd] = tt.destination
+			}
+			c.Registers.Common[tt.rs] = tt.source
+			c.Registers.Common[PC] = tt.pc
+			c.Registers.CPSR = baseCPSR | tt.initial
+
+			wantRegisters := c.Registers.Common
+
+			switch tt.op {
+			case 0, 2:
+				wantRegisters[tt.rd] = tt.wantValue
+			}
+			wantRegisters[PC] = tt.wantPC
+
+			// Bits 9–8 hold the operation.
+			// Bit 7 extends Rd, or selects BX/BLX for operation 3.
+			// Bit 6 extends Rs.
+			opcode := uint16(0x4400) |
+				tt.op<<8 |
+				(tt.rs&8)<<3 |
+				(tt.rs&7)<<3
+
+			if tt.op != 3 {
+				opcode |= (tt.rd&8)<<4 | (tt.rd & 7)
+			}
+			// For BX, bit 7 and bits 2–0 remain zero.
+
+			c.HiRegisterOperations(opcode)
+
+			for index, expected := range wantRegisters {
+				got := c.Registers.Common[index]
+				if got != expected {
+					t.Errorf(
+						"R%d mismatch (opcode=%#04x)\nReason: %s; registers outside the instruction's write targets must be preserved\nExpected: %#08x\nGot:      %#08x",
+						index, opcode, tt.reason, expected, got,
+					)
+				}
+			}
+
+			flags := []struct {
+				name  string
+				index CPSRIndex
+			}{
+				{"N", N},
+				{"Z", Z},
+				{"C", C},
+				{"V", V},
+				{"T", THUMB_CPSR},
+			}
+
+			for _, flag := range flags {
+				expected := uint32(tt.wantCPSR>>flag.index) & 1
+				got := c.Registers.GetCPSRBit(flag.index)
+
+				if got != expected {
+					t.Errorf(
+						"%s flag mismatch\nReason: %s\nExpected: %d\nGot:      %d",
+						flag.name, tt.reason, expected, got,
+					)
+				}
+			}
+
+			const checkedBits CPSR = flagMask | CPSR(1)<<THUMB_CPSR
+			expectedOther := tt.wantCPSR &^ checkedBits
+			gotOther := c.Registers.CPSR &^ checkedBits
+
+			if gotOther != expectedOther {
+				t.Errorf(
+					"CPSR mismatch\nReason: Bits outside NZCV and T must be preserved\nExpected: %#08x\nGot:      %#08x",
+					expectedOther, gotOther,
+				)
+			}
+		})
+	}
+}
