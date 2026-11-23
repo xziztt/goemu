@@ -1732,3 +1732,160 @@ func TestHiRegisterOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadStoreSignExtended(t *testing.T) {
+	const (
+		base = uint32(EWRAMRegion)
+		rd   = 0
+		rb   = 1
+		ro   = 2
+
+		initialCPSR CPSR = 0x0000003F | CPSR(thumbTestNZCV)
+	)
+
+	tests := []struct {
+		name       string
+		op         uint16
+		offset     uint32
+		initialRd  uint32
+		memory     uint16
+		wantRd     uint32
+		wantMemory uint16
+		reason     string
+	}{
+		{
+			name:       "STRH stores low 16 bits",
+			op:         0x0,
+			offset:     2,
+			initialRd:  0xDEADBEEF,
+			memory:     0x1234,
+			wantRd:     0xDEADBEEF,
+			wantMemory: 0xBEEF,
+			reason:     "STRH writes the low halfword to Rb + Ro and preserves Rd",
+		},
+		{
+			name:       "STRH aligns odd address",
+			op:         0x0,
+			offset:     3,
+			initialRd:  0xDEADBEEF,
+			memory:     0x1234,
+			wantRd:     0xDEADBEEF,
+			wantMemory: 0xBEEF,
+			reason:     "STRH clears address bit 0 before writing the halfword",
+		},
+		{
+			name:       "LDSB loads positive byte",
+			op:         0x1,
+			initialRd:  base + 4,
+			memory:     0x807F,
+			wantRd:     0x0000007F,
+			wantMemory: 0x807F,
+			reason:     "The byte at Rb + Ro is 0x7F and its sign bit is clear",
+		},
+		{
+			name:       "LDSB sign extends negative byte at odd address",
+			op:         0x1,
+			offset:     1,
+			initialRd:  base + 4,
+			memory:     0x80AB,
+			wantRd:     0xFFFFFF80,
+			wantMemory: 0x80AB,
+			reason:     "The byte at Rb + Ro is 0x80 and its sign bit is set",
+		},
+		{
+			name:       "LDRH zero extends aligned halfword",
+			op:         0x2,
+			offset:     2,
+			memory:     0xABCD,
+			wantRd:     0x0000ABCD,
+			wantMemory: 0xABCD,
+			reason:     "LDRH clears the upper 16 bits even when halfword bit 15 is set",
+		},
+		{
+			name:       "LDRH rotates at odd address",
+			op:         0x2,
+			offset:     3,
+			memory:     0xABCD,
+			wantRd:     0xCD0000AB,
+			wantMemory: 0xABCD,
+			reason:     "LDRH rotates the zero-extended halfword right by 8 across 32 bits",
+		},
+		{
+			name:       "LDSH sign extends aligned halfword",
+			op:         0x3,
+			offset:     2,
+			memory:     0x8001,
+			wantRd:     0xFFFF8001,
+			wantMemory: 0x8001,
+			reason:     "LDSH copies halfword bit 15 into the upper 16 bits of Rd",
+		},
+		{
+			name:       "LDSH loads signed byte at odd address",
+			op:         0x3,
+			offset:     3,
+			memory:     0x80AB,
+			wantRd:     0xFFFFFF80,
+			wantMemory: 0x80AB,
+			reason:     "At an odd address, LDSH sign extends the addressed byte",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			memory := &Memory{
+				EWRam: make([]byte, 256*1024),
+			}
+			c := CPU{
+				Memory:    memory,
+				Registers: &Registers{},
+				Bus:       NewBus(memory),
+			}
+
+			for index := range c.Registers.Common {
+				c.Registers.Common[index] = 0xA0000000 + uint32(index)
+			}
+			c.Registers.Common[rd] = tt.initialRd
+			c.Registers.Common[rb] = base
+			c.Registers.Common[ro] = tt.offset
+			c.Registers.CPSR = initialCPSR
+
+			alignedAddr := (base + tt.offset) &^ 1
+			c.Bus.Write16(alignedAddr, tt.memory)
+
+			// Both bytes differ from the expected LDSB values.
+			// This catches using Rd instead of Rb as the base register.
+			c.Bus.Write16(base+4, 0x1111)
+
+			wantRegisters := c.Registers.Common
+			wantRegisters[rd] = tt.wantRd
+
+			// Bits 11–10 select the operation.
+			// Bits 8–6, 5–3, and 2–0 select Ro, Rb, and Rd.
+			opcode := uint16(0x5200) | tt.op<<10 | ro<<6 | rb<<3 | rd
+			c.LoadStoreSignExtended(opcode)
+
+			for index, expected := range wantRegisters {
+				if got := c.Registers.Common[index]; got != expected {
+					t.Errorf(
+						"R%d mismatch (opcode=%#04x)\nReason: %s\nExpected: %#08x\nGot:      %#08x",
+						index, opcode, tt.reason, expected, got,
+					)
+				}
+			}
+
+			if got := c.Bus.Read16(alignedAddr); got != tt.wantMemory {
+				t.Errorf(
+					"Memory mismatch at %#08x (opcode=%#04x)\nReason: %s\nExpected: %#04x\nGot:      %#04x",
+					alignedAddr, opcode, tt.reason, tt.wantMemory, got,
+				)
+			}
+
+			if got := c.Registers.CPSR; got != initialCPSR {
+				t.Errorf(
+					"CPSR mismatch (opcode=%#04x)\nReason: The instruction preserves CPSR\nExpected: %#08x\nGot:      %#08x",
+					opcode, initialCPSR, got,
+				)
+			}
+		})
+	}
+}

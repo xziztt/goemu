@@ -13,7 +13,9 @@ var bus *Bus
 
 func NewBus(memory *Memory) *Bus {
 	if bus == nil {
-		bus = &Bus{}
+		bus = &Bus{
+			memory: *memory,
+		}
 	}
 	return bus
 }
@@ -161,7 +163,7 @@ func (b *Bus) Read16(addr uint32) uint16 {
 	b1 := b.Read8(addr + 1)
 
 	// lsb should go first
-	return uint16(b0) | uint16(b1<<8)
+	return uint16(b0) | (uint16(b1) << 8)
 }
 
 // Reads should be word aligned

@@ -548,3 +548,55 @@ func (c *CPU) HiRegisterOperations(opcode uint16) {
 		}
 	}
 }
+
+// load pc + nn into rd
+func (c *CPU) LoadPCRelative(opcode uint16) {
+	var (
+		nn = (opcode & 0xFF)
+		rd = (opcode >> 8) & 0x7
+	)
+
+	loc := c.Registers.Common[rd] + uint32(nn)
+	val := c.Bus.Read32(loc)
+
+	c.Registers.Common[rd] = val
+}
+
+// load/store sign-extended byte/halfword
+func (c *CPU) LoadStoreSignExtended(opcode uint16) {
+	var (
+		rd = (opcode & 0x7)
+		rb = (opcode >> 3) & 0x7
+		ro = (opcode >> 6) & 0x3
+		op = (opcode >> 10) & 0x3
+	)
+
+	switch op {
+	// STRH -> load rd into HW[rb + ro]
+	case 0x0:
+		loc := c.Registers.Common[rb] + c.Registers.Common[ro]
+		c.Bus.Write16(loc, uint16(c.Registers.Common[rd]))
+	// LDSB -> load sign extended 8 bits into Rd from rb + ro
+	case 0x1:
+		val8 := c.Bus.Read8(c.Registers.Common[ro] + c.Registers.Common[rb])
+		c.Registers.Common[rd] = uint32(int8(val8))
+	// LDRH -> load zero extended 16 bit
+	case 0x2:
+		loc := c.Registers.Common[rb] + c.Registers.Common[ro]
+		// for LDRH, if addr is even, load directly, else load and rotate right by 8 bits
+		c.Registers.Common[rd] = uint32(c.Bus.Read16(loc))
+		if loc&0x1 == 1 {
+			c.Registers.Common[rd] = bits.RotateLeft32(c.Registers.Common[rd], int(-8))
+		}
+
+	// LDSH -> load sign extended 16 bit
+	case 0x3:
+		loc := c.Registers.Common[rb] + c.Registers.Common[ro]
+		// for LDSH, if addr is even, load 16 bits and sign extend, else load 8 bits and sign extend
+		if loc&0x1 == 0 {
+			c.Registers.Common[rd] = uint32(int16(c.Bus.Read16(loc)))
+		} else {
+			c.Registers.Common[rd] = uint32(int8(c.Bus.Read8(loc)))
+		}
+	}
+}
